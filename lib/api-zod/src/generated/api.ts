@@ -97,7 +97,7 @@ export const DeleteModelParams = zod.object({
 export const ListDatasetsResponseItem = zod.object({
   id: zod.number(),
   datasetName: zod.string(),
-  domain: zod.enum(["Medical", "Legal", "General"]),
+  domain: zod.enum(["Medical", "General"]),
   questionCount: zod.number(),
   createdAt: zod.string(),
 });
@@ -108,7 +108,7 @@ export const ListDatasetsResponse = zod.array(ListDatasetsResponseItem);
  */
 export const CreateDatasetBody = zod.object({
   datasetName: zod.string(),
-  domain: zod.enum(["Medical", "Legal", "General"]),
+  domain: zod.enum(["Medical", "General"]),
 });
 
 /**
@@ -121,7 +121,7 @@ export const GetDatasetParams = zod.object({
 export const GetDatasetResponse = zod.object({
   id: zod.number(),
   datasetName: zod.string(),
-  domain: zod.enum(["Medical", "Legal", "General"]),
+  domain: zod.enum(["Medical", "General"]),
   questionCount: zod.number(),
   createdAt: zod.string(),
 });

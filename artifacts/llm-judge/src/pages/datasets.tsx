@@ -30,7 +30,7 @@ export default function Datasets() {
     resolver: zodResolver(datasetSchema),
     defaultValues: {
       datasetName: "",
-      domain: CreateDatasetBodyDomain.General,
+      domain: CreateDatasetBodyDomain.Medical,
     },
   });
 
@@ -94,9 +94,8 @@ export default function Datasets() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value={CreateDatasetBodyDomain.General}>General</SelectItem>
                           <SelectItem value={CreateDatasetBodyDomain.Medical}>Medical</SelectItem>
-                          <SelectItem value={CreateDatasetBodyDomain.Legal}>Legal</SelectItem>
+                          <SelectItem value={CreateDatasetBodyDomain.General}>General</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

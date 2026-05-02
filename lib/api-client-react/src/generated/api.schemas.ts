@@ -76,7 +76,6 @@ export type DatasetDomain = (typeof DatasetDomain)[keyof typeof DatasetDomain];
 
 export const DatasetDomain = {
   Medical: "Medical",
-  Legal: "Legal",
   General: "General",
 } as const;
 
@@ -93,7 +92,6 @@ export type CreateDatasetBodyDomain =
 
 export const CreateDatasetBodyDomain = {
   Medical: "Medical",
-  Legal: "Legal",
   General: "General",
 } as const;
 
