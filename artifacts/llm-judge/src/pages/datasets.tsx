@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, ChevronRight, Plus } from "lucide-react";
+import { Trash2, ChevronRight, Plus, ExternalLink } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -128,12 +128,7 @@ export default function Datasets() {
                   {datasets?.map((dataset) => (
                     <TableRow key={dataset.id} className="hover:bg-muted/40 group">
                       <TableCell className="pl-4 text-muted-foreground text-xs">{dataset.id}</TableCell>
-                      <TableCell>
-                        <Link href={`/datasets/${dataset.id}`} className="inline-flex items-center gap-1.5 font-medium hover:text-primary transition-colors">
-                          {dataset.datasetName}
-                          <ChevronRight className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </Link>
-                      </TableCell>
+                      <TableCell className="font-medium">{dataset.datasetName}</TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="text-xs">
                           {dataset.domain}
@@ -141,15 +136,22 @@ export default function Datasets() {
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">{dataset.questionCount}</TableCell>
                       <TableCell className="text-right pr-4">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(dataset.id)}
-                          disabled={deleteDataset.isPending}
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Link href={`/datasets/${dataset.id}`}>
+                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-primary border-primary/30 hover:bg-primary/5">
+                              <ExternalLink className="h-3.5 w-3.5" /> Open
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(dataset.id)}
+                            disabled={deleteDataset.isPending}
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
