@@ -5,13 +5,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Database } from "lucide-react";
+import { Trash2, Database, ChevronRight, PlusSquare } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
+import { Badge } from "@/components/ui/badge";
+import { motion } from "framer-motion";
 
 const datasetSchema = z.object({
   datasetName: z.string().min(1, "Dataset name is required"),
@@ -44,7 +46,7 @@ export default function Datasets() {
   }
 
   function handleDelete(id: number) {
-    if (confirm("Are you sure you want to delete this dataset? This will also delete related questions and responses.")) {
+    if (confirm("Purge dataset and all associated question telemetry?")) {
       deleteDataset.mutate({ id }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListDatasetsQueryKey() });
@@ -54,30 +56,40 @@ export default function Datasets() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">Datasets</h2>
-        <p className="text-muted-foreground">Manage evaluation datasets and benchmarks.</p>
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="space-y-8"
+    >
+      <div className="border-b border-border pb-6">
+        <h2 className="text-2xl font-bold tracking-tight uppercase text-foreground flex items-center gap-3">
+          <Database className="h-6 w-6 text-primary" />
+          Benchmark Datasets
+        </h2>
+        <p className="text-sm font-mono text-muted-foreground mt-2 tracking-wider uppercase">Corpus Management & Ground Truth Data</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="md:col-span-1 h-fit">
-          <CardHeader>
-            <CardTitle>Create Dataset</CardTitle>
+      <div className="grid gap-8 md:grid-cols-12 align-top">
+        <Card className="md:col-span-4 h-fit rounded-none border-border bg-card/50 backdrop-blur-sm">
+          <CardHeader className="border-b border-border/50 bg-muted/20">
+            <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <PlusSquare className="h-4 w-4" /> Initialize Corpus
+            </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                 <FormField
                   control={form.control}
                   name="datasetName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Dataset Name</FormLabel>
+                      <FormLabel className="text-[10px] font-mono tracking-widest uppercase">Corpus Designation</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. MedQA subset" {...field} />
+                        <Input placeholder="e.g. MedQA subset" className="rounded-none bg-background/50 font-mono text-sm" {...field} />
                       </FormControl>
-                      <FormMessage />
+                      <FormMessage className="text-[10px] font-mono" />
                     </FormItem>
                   )}
                 />
@@ -86,67 +98,68 @@ export default function Datasets() {
                   name="domain"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Domain</FormLabel>
+                      <FormLabel className="text-[10px] font-mono tracking-widest uppercase">Domain Spec</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
-                          <SelectTrigger>
+                          <SelectTrigger className="rounded-none bg-background/50 font-mono text-sm">
                             <SelectValue placeholder="Select domain" />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value={CreateDatasetBodyDomain.Medical}>Medical</SelectItem>
-                          <SelectItem value={CreateDatasetBodyDomain.General}>General</SelectItem>
+                        <SelectContent className="rounded-none font-mono text-sm">
+                          <SelectItem value={CreateDatasetBodyDomain.Medical}>Clinical / Medical</SelectItem>
+                          <SelectItem value={CreateDatasetBodyDomain.General}>General Instruction</SelectItem>
                         </SelectContent>
                       </Select>
-                      <FormMessage />
+                      <FormMessage className="text-[10px] font-mono" />
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full" disabled={createDataset.isPending}>
-                  {createDataset.isPending ? "Creating..." : "Create Dataset"}
+                <Button type="submit" className="w-full rounded-none font-mono tracking-widest uppercase text-xs h-10" disabled={createDataset.isPending}>
+                  {createDataset.isPending ? "Allocating..." : "Create Corpus"}
                 </Button>
               </form>
             </Form>
           </CardContent>
         </Card>
 
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle>All Datasets</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <Card className="md:col-span-8 rounded-none border-border bg-card/50 backdrop-blur-sm">
+          <CardContent className="p-0">
             {isLoading ? (
-              <Skeleton className="h-64 w-full" />
+              <div className="p-6"><Skeleton className="h-[400px] w-full rounded-none" /></div>
             ) : (
               <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Domain</TableHead>
-                    <TableHead>Questions</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                <TableHeader className="bg-muted/30">
+                  <TableRow className="hover:bg-transparent border-border/50">
+                    <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 w-16">ID</TableHead>
+                    <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12">Dataset</TableHead>
+                    <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12">Domain</TableHead>
+                    <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 text-right">Items</TableHead>
+                    <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {datasets?.map((dataset) => (
-                    <TableRow key={dataset.id}>
-                      <TableCell className="font-mono text-xs">{dataset.id}</TableCell>
-                      <TableCell className="font-medium">
-                        <Link href={`/datasets/${dataset.id}`} className="hover:underline flex items-center gap-2">
-                          <Database className="h-4 w-4 text-muted-foreground" />
-                          {dataset.datasetName}
+                    <TableRow key={dataset.id} className="border-border/30 hover:bg-muted/20 group">
+                      <TableCell className="font-mono text-xs text-muted-foreground">{String(dataset.id).padStart(4, '0')}</TableCell>
+                      <TableCell>
+                        <Link href={`/datasets/${dataset.id}`} className="inline-flex items-center gap-2 group-hover:text-primary transition-colors">
+                          <span className="font-semibold text-sm">{dataset.datasetName}</span>
+                          <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </Link>
                       </TableCell>
-                      <TableCell>{dataset.domain}</TableCell>
-                      <TableCell className="font-mono">{dataset.questionCount}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="rounded-none font-mono text-[9px] uppercase tracking-widest bg-muted/20 text-muted-foreground border-border">
+                          {dataset.domain}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-right">{dataset.questionCount}</TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleDelete(dataset.id)}
                           disabled={deleteDataset.isPending}
-                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          className="h-8 w-8 rounded-none text-destructive hover:bg-destructive/20 hover:text-destructive transition-colors"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -155,8 +168,8 @@ export default function Datasets() {
                   ))}
                   {(!datasets || datasets.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        No datasets found. Create one to get started.
+                      <TableCell colSpan={5} className="text-center py-16 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                        No datasets allocated.
                       </TableCell>
                     </TableRow>
                   )}
@@ -166,6 +179,6 @@ export default function Datasets() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </motion.div>
   );
 }
