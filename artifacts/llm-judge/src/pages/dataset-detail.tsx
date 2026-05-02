@@ -193,8 +193,7 @@ export default function DatasetDetail() {
   const [jsonlName, setJsonlName] = useState("");
 
   // ── Tab 2: MCQ CSV (1 or 2 files) ────────────────────────────────────────
-  const [mcqMode, setMcqMode] = useState<"single" | "two-files">("single");
-  const [mcqMain, setMcqMain] = useState<string | null>(null);    // questions (may have answers)
+  const [mcqMain, setMcqMain] = useState<string | null>(null);    // questions file
   const [mcqMainName, setMcqMainName] = useState("");
   const [mcqAnswers, setMcqAnswers] = useState<string | null>(null); // optional answers file
   const [mcqAnswersName, setMcqAnswersName] = useState("");
@@ -389,110 +388,59 @@ export default function DatasetDetail() {
             {/* ── MCQ tab ───────────────────────────────────────────────── */}
             <TabsContent value="mcq" className="space-y-4">
 
-              {/* Mode selector */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setMcqMode("single"); setMcqAnswers(null); setMcqAnswersName(""); setMatchPreview(null); }}
-                  className={`rounded-lg border-2 p-3 text-left transition-all ${mcqMode === "single" ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40"}`}
-                >
-                  <p className="text-xs font-semibold text-foreground">Single file</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">CSV includes <span className="font-mono">Correct_answer</span></p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMcqMode("two-files"); setMatchPreview(null); }}
-                  className={`rounded-lg border-2 p-3 text-left transition-all ${mcqMode === "two-files" ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40"}`}
-                >
-                  <p className="text-xs font-semibold text-foreground">Two files</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Questions + separate answers file</p>
-                </button>
-              </div>
-
-              {/* Format hint */}
               <div className="bg-muted/50 rounded-lg p-3 text-xs font-mono border">
                 <p className="font-semibold text-foreground not-italic mb-1">Expected columns:</p>
                 <p className="text-primary">ID, Question_name, Question_text, (A), (B), (C), (D), (E), (F)</p>
-                {mcqMode === "single"
-                  ? <p className="text-green-700 mt-0.5">+ <span className="font-semibold">Correct_answer</span> <span className="font-sans text-muted-foreground italic">(required in this mode)</span></p>
-                  : <p className="text-amber-700 mt-0.5">No <span className="font-semibold">Correct_answer</span> needed — answers matched by <span className="font-semibold">ID</span></p>
-                }
+                <p className="text-muted-foreground mt-0.5 font-sans italic">Answers are provided in a separate file matched by ID</p>
               </div>
 
-              {/* Single mode: one file zone */}
-              {mcqMode === "single" && (
-                <>
-                  <FileDropZone
-                    label="Questions file (.csv)"
-                    hint="Must include Correct_answer column"
-                    accept=".csv"
-                    fileName={mcqMainName}
-                    onFile={(text, name) => { setMcqMain(text); setMcqMainName(name); }}
-                    onClear={() => { setMcqMain(null); setMcqMainName(""); }}
-                  />
-                  {mcqMain && (
-                    <p className="text-xs text-green-600 flex items-center gap-1">
-                      <CheckCircle2 className="h-3.5 w-3.5" /> File loaded — ready to upload
-                    </p>
-                  )}
-                </>
+              <div>
+                <p className="text-xs font-medium text-foreground mb-1.5">① Questions file <span className="text-muted-foreground font-normal">(no Correct_answer needed)</span></p>
+                <FileDropZone
+                  label="Questions file (.csv)"
+                  hint="ID, Question_text, (A)–(F) columns"
+                  accept=".csv"
+                  fileName={mcqMainName}
+                  onFile={(text, name) => { setMcqMain(text); setMcqMainName(name); setMatchPreview(null); }}
+                  onClear={() => { setMcqMain(null); setMcqMainName(""); setMatchPreview(null); }}
+                />
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-foreground mb-1.5">② Answers file <span className="text-muted-foreground font-normal">(must have ID + Correct_answer)</span></p>
+                <FileDropZone
+                  label="Answers file (.csv)"
+                  hint="ID + Correct_answer columns"
+                  accept=".csv"
+                  fileName={mcqAnswersName}
+                  onFile={(text, name) => { setMcqAnswers(text); setMcqAnswersName(name); setMatchPreview(null); }}
+                  onClear={() => { setMcqAnswers(null); setMcqAnswersName(""); setMatchPreview(null); }}
+                />
+              </div>
+
+              {mcqMain && mcqAnswers && !matchPreview && (
+                <Button variant="outline" size="sm" className="w-full" onClick={buildMatchPreview}>
+                  Preview matching
+                </Button>
               )}
 
-              {/* Two-files mode: questions + answers */}
-              {mcqMode === "two-files" && (
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-xs font-medium text-foreground mb-1.5">① Questions file <span className="text-muted-foreground">(no Correct_answer needed)</span></p>
-                    <FileDropZone
-                      label="Questions file (.csv)"
-                      hint="ID, Question_text, (A)–(F) columns"
-                      accept=".csv"
-                      fileName={mcqMainName}
-                      onFile={(text, name) => { setMcqMain(text); setMcqMainName(name); setMatchPreview(null); }}
-                      onClear={() => { setMcqMain(null); setMcqMainName(""); setMatchPreview(null); }}
-                    />
+              {matchPreview && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-green-700">{matchPreview.matched}</p>
+                    <p className="text-xs text-green-600">Questions matched</p>
                   </div>
-                  <div>
-                    <p className="text-xs font-medium text-foreground mb-1.5">② Answers file <span className="text-muted-foreground">(must have ID + Correct_answer)</span></p>
-                    <FileDropZone
-                      label="Answers file (.csv)"
-                      hint="ID + Correct_answer columns"
-                      accept=".csv"
-                      fileName={mcqAnswersName}
-                      onFile={(text, name) => { setMcqAnswers(text); setMcqAnswersName(name); setMatchPreview(null); }}
-                      onClear={() => { setMcqAnswers(null); setMcqAnswersName(""); setMatchPreview(null); }}
-                    />
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                    <p className="text-xl font-bold text-amber-700">{matchPreview.unmatched}</p>
+                    <p className="text-xs text-amber-600">No answer found</p>
                   </div>
-
-                  {mcqMain && mcqAnswers && !matchPreview && (
-                    <Button variant="outline" size="sm" className="w-full" onClick={buildMatchPreview}>
-                      Preview matching
-                    </Button>
-                  )}
-
-                  {matchPreview && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-                        <p className="text-xl font-bold text-green-700">{matchPreview.matched}</p>
-                        <p className="text-xs text-green-600">Questions matched</p>
-                      </div>
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
-                        <p className="text-xl font-bold text-amber-700">{matchPreview.unmatched}</p>
-                        <p className="text-xs text-amber-600">No answer found</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
               <Button
                 className="w-full gap-2"
                 onClick={handleMCQUpload}
-                disabled={
-                  uploadDataset.isPending ||
-                  !mcqMain ||
-                  (mcqMode === "two-files" && !mcqAnswers)
-                }
+                disabled={uploadDataset.isPending || !mcqMain || !mcqAnswers}
               >
                 <Upload className="h-4 w-4" />
                 {uploadDataset.isPending ? "Uploading..." : "Upload MCQ"}
