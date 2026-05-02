@@ -222,14 +222,12 @@ export default function DatasetDetail() {
       const choices: Record<string, string> = {};
       ["A","B","C","D","E","F"].forEach(l => { const v = row[`(${l})`]; if (v) choices[l] = v; });
 
-      // Get correct answer: from main file's own column or from answers file
+      // Get correct answer: store as single letter (A–F) for easy evaluation
       const answerSrc = aMap ? aMap.get(row["ID"]?.trim()) : row;
-      let goldAnswer = "(no answer provided)";
+      let goldAnswer = "";
       if (answerSrc?.["Correct_answer"]) {
         const letter = extractCorrectLetter(answerSrc["Correct_answer"]);
-        goldAnswer = letter && choices[letter]
-          ? `(${letter}) ${choices[letter]}`
-          : answerSrc["Correct_answer"];
+        goldAnswer = letter ?? answerSrc["Correct_answer"].trim();
       }
 
       return JSON.stringify({
