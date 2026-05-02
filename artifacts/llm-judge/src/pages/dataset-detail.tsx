@@ -129,18 +129,22 @@ export default function DatasetDetail() {
   const uploadDataset = useUploadDataset();
 
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
     queryClient.invalidateQueries({ queryKey: getGetDatasetQueryKey(datasetId) });
   }
 
-  function doUpload(content: string, format: UploadDatasetBodyFormat, successMsg: string) {
+  function doUpload(content: string, format: UploadDatasetBodyFormat, successMsg: string, onCleanup?: () => void) {
     setUploadResult(null);
     uploadDataset.mutate({ data: { datasetId, content, format } }, {
       onSuccess: (res) => {
-        invalidate(); setUploadResult(res);
+        invalidate();
+        setUploadResult(res);
+        onCleanup?.();
         toast({ title: successMsg, description: `${res.imported} questions imported` });
+        setTimeout(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
       },
       onError: (err) => toast({ title: "Upload failed", description: (err as any).error || "Error", variant: "destructive" }),
     });
@@ -221,9 +225,10 @@ export default function DatasetDetail() {
   function handleMCQUpload() {
     if (!mcqMain) return;
     const content = buildMCQJsonl(mcqMain, mcqAnswers);
-    doUpload(content, UploadDatasetBodyFormat.jsonl, "MCQ upload complete");
-    setMcqMain(null); setMcqMainName("");
-    setMcqAnswers(null); setMcqAnswersName(""); setMatchPreview(null);
+    doUpload(content, UploadDatasetBodyFormat.jsonl, "MCQ upload complete", () => {
+      setMcqMain(null); setMcqMainName("");
+      setMcqAnswers(null); setMcqAnswersName(""); setMatchPreview(null);
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -313,7 +318,9 @@ export default function DatasetDetail() {
               </div>
 
               <Button className="w-full gap-2"
-                onClick={() => doUpload(jsonlText, UploadDatasetBodyFormat.jsonl, "Upload complete")}
+                onClick={() => doUpload(jsonlText, UploadDatasetBodyFormat.jsonl, "Upload complete", () => {
+                  setJsonlText(""); setJsonlName("");
+                })}
                 disabled={uploadDataset.isPending || !jsonlText.trim()}
               >
                 <Upload className="h-4 w-4" />
@@ -439,6 +446,7 @@ export default function DatasetDetail() {
       </Card>
 
       {/* Questions table */}
+      <div ref={tableRef} />
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold">Questions ({questions?.length ?? 0})</CardTitle>
