@@ -1,22 +1,33 @@
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-export function ScoreBadge({ score, className }: { score?: number | null, className?: string }) {
-  if (score == null) return <Badge variant="outline" className={cn("rounded-none font-mono text-[10px] tracking-widest bg-muted/30", className)}>UNSCORED</Badge>;
+export function ScoreBadge({ score, className }: { score?: number | null; className?: string }) {
+  if (score == null) {
+    return (
+      <span className={cn("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200", className)}>
+        Unscored
+      </span>
+    );
+  }
 
   const config = {
-    1: { color: "bg-destructive/10 text-destructive border-destructive/30", label: "1.0 CRITICAL" },
-    2: { color: "bg-orange-500/10 text-orange-500 border-orange-500/30", label: "2.0 WEAK" },
-    3: { color: "bg-yellow-500/10 text-yellow-500 border-yellow-500/30", label: "3.0 PARTIAL" },
-    4: { color: "bg-cyan-500/10 text-cyan-500 border-cyan-500/30", label: "4.0 GOOD" },
-    5: { color: "bg-green-500/10 text-green-500 border-green-500/30", label: "5.0 EXCELLENT" },
-  }[Math.floor(score) as 1|2|3|4|5];
+    1: { bg: "bg-red-50", text: "text-red-600", border: "border-red-200", label: "1 — Critical" },
+    2: { bg: "bg-orange-50", text: "text-orange-600", border: "border-orange-200", label: "2 — Weak" },
+    3: { bg: "bg-yellow-50", text: "text-yellow-700", border: "border-yellow-200", label: "3 — Partial" },
+    4: { bg: "bg-blue-50", text: "text-blue-600", border: "border-blue-200", label: "4 — Good" },
+    5: { bg: "bg-green-50", text: "text-green-700", border: "border-green-200", label: "5 — Excellent" },
+  }[Math.floor(score) as 1 | 2 | 3 | 4 | 5];
 
-  if (!config) return <Badge variant="outline" className={cn("rounded-none font-mono text-[10px] tracking-widest", className)}>{score}</Badge>;
+  if (!config) {
+    return (
+      <span className={cn("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600", className)}>
+        {score}
+      </span>
+    );
+  }
 
   return (
-    <Badge variant="outline" className={cn("rounded-none font-mono text-[10px] tracking-widest uppercase border", config.color, className)}>
+    <span className={cn("inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border", config.bg, config.text, config.border, className)}>
       {config.label}
-    </Badge>
+    </span>
   );
 }

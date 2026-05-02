@@ -5,7 +5,7 @@ import {
   useListModels,
 } from "@workspace/api-client-react";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,8 +15,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, ShieldAlert, Cpu, KeyRound } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Check, X } from "lucide-react";
 import { motion } from "framer-motion";
 
 const keysSchema = z.object({
@@ -75,10 +74,10 @@ export default function Settings() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetApiKeyStatusQueryKey() });
         form.reset();
-        toast({ title: "Vault Updated", description: "Provider keys securely committed." });
+        toast({ title: "API keys saved", description: "Provider credentials updated successfully." });
       },
       onError: (err) => {
-        toast({ title: "Vault Error", description: err.error || "Persistence failed", variant: "destructive" });
+        toast({ title: "Failed to save", description: err.error || "An error occurred", variant: "destructive" });
       },
     });
   }
@@ -86,144 +85,118 @@ export default function Settings() {
   function handleSetJudge(modelId: string) {
     setJudgeModel.mutate(parseInt(modelId), {
       onSuccess: (data) => {
-        toast({ title: "Evaluator Configured", description: `Active evaluator set to ${data.modelName}.` });
+        toast({ title: "Judge model updated", description: `Now using ${data.modelName} as the judge.` });
       },
       onError: () => {
-        toast({ title: "Configuration Fault", description: "Failed to persist evaluator selection.", variant: "destructive" });
+        toast({ title: "Failed to update", description: "Could not save judge model selection.", variant: "destructive" });
       },
     });
   }
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="max-w-3xl mx-auto space-y-8 pb-12"
-    >
-      <div className="border-b border-border pb-6">
-        <h2 className="text-2xl font-bold tracking-tight uppercase text-foreground flex items-center gap-3">
-          <ShieldAlert className="h-6 w-6 text-primary" />
-          System Configuration
-        </h2>
-        <p className="text-sm font-mono text-muted-foreground mt-2 tracking-wider uppercase">Authentication & Runtime Setup</p>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="max-w-2xl space-y-6 pb-12">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Configure your judge model and API credentials</p>
       </div>
 
-      <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm shadow-md">
-        <CardHeader className="border-b border-border/50 bg-muted/20">
-          <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-            <Cpu className="h-4 w-4" /> Global Evaluator Target
-          </CardTitle>
-          <CardDescription className="text-[10px] font-mono uppercase tracking-widest mt-1 opacity-70">
-            Define the singular LLM agent responsible for output verification
-          </CardDescription>
+      {/* Judge Model */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
+          <p className="text-xs text-muted-foreground">The LLM responsible for evaluating all model responses</p>
         </CardHeader>
-        <CardContent className="pt-6">
+        <CardContent className="space-y-4">
           {isLoadingJudge || isLoadingModels ? (
-            <Skeleton className="h-16 w-full rounded-none" />
+            <Skeleton className="h-16 w-full" />
           ) : (
-            <div className="space-y-6">
+            <>
               {judgeModel?.modelId && (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-background border border-border p-4 gap-4">
+                <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div>
-                    <div className="font-semibold text-lg">{judgeModel.modelName}</div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mt-1">
-                      {judgeModel.provider} / {judgeModel.version}
-                    </div>
+                    <p className="font-semibold text-green-800">{judgeModel.modelName}</p>
+                    <p className="text-xs text-green-600 mt-0.5">{judgeModel.provider} · {judgeModel.version}</p>
                   </div>
-                  <Badge className="rounded-none bg-primary text-primary-foreground font-mono text-[10px] tracking-widest uppercase self-start sm:self-auto shrink-0">
-                    Active Evaluator
-                  </Badge>
+                  <span className="text-xs font-medium bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full">Active</span>
                 </div>
               )}
-              <div className="space-y-3 bg-muted/10 p-5 border border-border/50">
-                <label className="text-[10px] font-mono tracking-widest uppercase text-foreground block">
-                  {judgeModel?.modelId ? "Modify Evaluator Target" : "Assign Evaluator Target"}
-                </label>
-                <Select
-                  onValueChange={handleSetJudge}
-                  disabled={setJudgeModel.isPending}
-                >
-                  <SelectTrigger className="rounded-none bg-background font-mono text-sm h-12">
-                    <SelectValue placeholder="SELECT REGISTERED AGENT..." />
+              <div className="space-y-2">
+                <label className="text-sm font-medium">{judgeModel?.modelId ? "Change judge model" : "Select judge model"}</label>
+                <Select onValueChange={handleSetJudge} disabled={setJudgeModel.isPending}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a model..." />
                   </SelectTrigger>
-                  <SelectContent className="rounded-none font-mono text-sm">
+                  <SelectContent>
                     {models?.map((m) => (
                       <SelectItem key={m.id} value={m.id.toString()}>
-                        {m.modelName} <span className="text-muted-foreground ml-2">[{m.provider}]</span>
+                        {m.modelName} <span className="text-muted-foreground ml-2 text-xs">{m.provider}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {(!models || models.length === 0) && (
+                  <p className="text-xs text-muted-foreground">No models registered. <a href="/models" className="underline text-primary">Add a model first.</a></p>
+                )}
               </div>
-            </div>
+            </>
           )}
         </CardContent>
       </Card>
 
-      <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm">
-        <CardHeader className="border-b border-border/50 bg-muted/20">
-          <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-            <KeyRound className="h-4 w-4" /> Provider Vault
-          </CardTitle>
-          <CardDescription className="text-[10px] font-mono uppercase tracking-widest mt-1 opacity-70">
-            Keys are required for inference. Inputs overwrite existing entries.
-          </CardDescription>
+      {/* API Keys */}
+      <Card>
+        <CardHeader className="pb-4">
+          <CardTitle className="text-sm font-semibold">API Keys</CardTitle>
+          <p className="text-xs text-muted-foreground">Required for the judge model to call inference APIs</p>
         </CardHeader>
-        <CardContent className="pt-8">
+        <CardContent>
           {isLoading ? (
-            <div className="space-y-8">
-              <Skeleton className="h-14 w-full rounded-none" />
-              <Skeleton className="h-14 w-full rounded-none" />
-              <Skeleton className="h-14 w-full rounded-none" />
+            <div className="space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
             </div>
           ) : (
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-                <div className="space-y-6">
-                  {[
-                    { name: "openaiKey" as const, label: "OpenAI Vault", placeholder: "sk-...", statusKey: "openai" as const },
-                    { name: "deepseekKey" as const, label: "DeepSeek Vault", placeholder: "sk-...", statusKey: "deepseek" as const },
-                    { name: "claudeKey" as const, label: "Anthropic Vault", placeholder: "sk-ant-...", statusKey: "claude" as const },
-                  ].map(({ name, label, placeholder, statusKey }) => (
-                    <FormField
-                      key={name}
-                      control={form.control}
-                      name={name}
-                      render={({ field }) => (
-                        <FormItem className="space-y-3">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                            <FormLabel className="text-[10px] font-mono uppercase tracking-widest text-foreground">{label}</FormLabel>
-                            {status?.[statusKey] ? (
-                              <Badge variant="outline" className="rounded-none font-mono text-[9px] uppercase tracking-widest border-green-500/30 text-green-500 bg-green-500/5 px-2 py-0.5 self-start sm:self-auto w-fit">
-                                <Check className="h-3 w-3 mr-1" /> Provisioned
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="rounded-none font-mono text-[9px] uppercase tracking-widest border-destructive/30 text-destructive bg-destructive/5 px-2 py-0.5 self-start sm:self-auto w-fit">
-                                <X className="h-3 w-3 mr-1" /> Unprovisioned
-                              </Badge>
-                            )}
-                          </div>
-                          <FormControl>
-                            <Input
-                              type="password"
-                              className="rounded-none bg-background/50 font-mono text-sm h-12"
-                              placeholder={status?.[statusKey] ? "••••••••••••••••••••••••••••••••" : placeholder}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage className="text-[10px] font-mono" />
-                        </FormItem>
-                      )}
-                    />
-                  ))}
-                </div>
-                
-                <div className="pt-6 border-t border-border/50">
-                  <Button type="submit" disabled={saveKeys.isPending} className="w-full rounded-none font-mono tracking-widest uppercase text-sm h-14 bg-primary text-primary-foreground hover:bg-primary/90 transition-all">
-                    {saveKeys.isPending ? "Commiting to Vault..." : "Commit API Credentials"}
-                  </Button>
-                </div>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {[
+                  { name: "openaiKey" as const, label: "OpenAI", placeholder: "sk-...", statusKey: "openai" as const },
+                  { name: "deepseekKey" as const, label: "DeepSeek", placeholder: "sk-...", statusKey: "deepseek" as const },
+                  { name: "claudeKey" as const, label: "Anthropic (Claude)", placeholder: "sk-ant-...", statusKey: "claude" as const },
+                ].map(({ name, label, placeholder, statusKey }) => (
+                  <FormField
+                    key={name}
+                    control={form.control}
+                    name={name}
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <FormLabel className="text-sm font-medium">{label}</FormLabel>
+                          {status?.[statusKey] ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                              <Check className="h-3 w-3" /> Configured
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full">
+                              <X className="h-3 w-3" /> Not set
+                            </span>
+                          )}
+                        </div>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder={status?.[statusKey] ? "••••••••••••••••••••" : placeholder}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ))}
+                <Button type="submit" disabled={saveKeys.isPending} className="w-full mt-2">
+                  {saveKeys.isPending ? "Saving..." : "Save API Keys"}
+                </Button>
               </form>
             </Form>
           )}

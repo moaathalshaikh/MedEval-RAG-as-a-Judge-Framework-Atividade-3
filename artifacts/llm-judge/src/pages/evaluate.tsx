@@ -1,13 +1,13 @@
 import { useListModels, useListDatasets, useRunJudge, getListEvaluationsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { FileCheck2, CheckSquare, AlertTriangle, Settings, ChevronRight, Play, Cpu, AlertCircle } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Play, Settings, AlertCircle, CheckCircle2, SkipForward } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
@@ -41,9 +41,7 @@ export default function Evaluate() {
 
   function handleEvaluate() {
     if (!selectedDatasetId || !judgeModel?.modelId) return;
-
     setResult(null);
-
     runJudge.mutate(
       {
         data: {
@@ -56,17 +54,10 @@ export default function Evaluate() {
         onSuccess: (res) => {
           setResult(res);
           queryClient.invalidateQueries({ queryKey: getListEvaluationsQueryKey() });
-          toast({
-            title: "Pipeline Execution Complete",
-            description: `Evaluated ${res.evaluated} responses against ground truth.`,
-          });
+          toast({ title: "Evaluation complete", description: `Evaluated ${res.evaluated} responses.` });
         },
         onError: (err) => {
-          toast({
-            title: "Pipeline Fault",
-            description: err.error || "Unknown execution error",
-            variant: "destructive",
-          });
+          toast({ title: "Evaluation failed", description: err.error || "Unknown error", variant: "destructive" });
         },
       }
     );
@@ -75,114 +66,86 @@ export default function Evaluate() {
   const isReady = !!(judgeModel?.modelId) && !!selectedDatasetId;
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-8"
-    >
-      <div className="border-b border-border pb-6">
-        <h2 className="text-2xl font-bold tracking-tight uppercase text-foreground flex items-center gap-3">
-          <Play className="h-6 w-6 text-primary" />
-          LLM-as-a-Judge Pipeline
-        </h2>
-        <p className="text-sm font-mono text-muted-foreground mt-2 tracking-wider uppercase">Execute Evaluation Workflow</p>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Evaluate</h1>
+        <p className="text-sm text-muted-foreground mt-1">Run the LLM-as-a-Judge pipeline on imported responses</p>
       </div>
 
-      <div className="grid gap-8 md:grid-cols-12 align-top">
-        <div className="md:col-span-8 space-y-8">
-          <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm shadow-md">
-            <CardHeader className="border-b border-border/50 bg-muted/20">
-              <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Cpu className="h-4 w-4" /> Selected Evaluator Config
-                </div>
-                {judgeModel?.modelId && (
-                  <div className="flex items-center gap-2">
-                    <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-                    <span className="text-[10px] text-primary font-bold">ACTIVE</span>
-                  </div>
-                )}
-              </CardTitle>
+      <div className="grid gap-6 md:grid-cols-12">
+        <div className="md:col-span-8 space-y-4">
+          {/* Judge Model Status */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
             </CardHeader>
-            <CardContent className="pt-6">
+            <CardContent>
               {isLoadingJudge ? (
-                <Skeleton className="h-20 w-full rounded-none" />
+                <Skeleton className="h-14 w-full" />
               ) : judgeModel?.modelId ? (
-                <div className="bg-background border border-border p-4 flex items-start justify-between">
+                <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div>
-                    <h3 className="font-semibold text-lg">{judgeModel.modelName}</h3>
-                    <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest mt-1">
-                      {judgeModel.provider} | {judgeModel.version}
-                    </div>
+                    <p className="font-semibold text-green-800">{judgeModel.modelName}</p>
+                    <p className="text-xs text-green-600 mt-0.5">{judgeModel.provider} · {judgeModel.version}</p>
                   </div>
-                  <Link href="/settings" className="text-muted-foreground hover:text-primary transition-colors">
-                    <Settings className="h-5 w-5" />
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-green-100 text-green-700 border-0">Active</Badge>
+                    <Link href="/settings">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600">
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               ) : (
-                <Alert className="rounded-none border-destructive/30 bg-destructive/5 text-destructive">
-                  <AlertCircle className="h-4 w-4 stroke-destructive" />
-                  <AlertTitle className="font-mono text-xs uppercase tracking-widest">Configuration Required</AlertTitle>
-                  <AlertDescription className="text-[10px] font-mono mt-2">
-                    System requires a designated evaluator model before execution. 
-                    <Link href="/settings" className="ml-2 inline-flex items-center underline underline-offset-2 hover:text-foreground">
-                      Configure Settings <ChevronRight className="h-3 w-3 ml-1" />
-                    </Link>
+                <Alert className="border-amber-200 bg-amber-50">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-700 text-sm">
+                    No judge model configured.{" "}
+                    <Link href="/settings" className="underline font-medium">Configure in Settings →</Link>
                   </AlertDescription>
                 </Alert>
               )}
             </CardContent>
           </Card>
 
-          <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader className="border-b border-border/50 bg-muted/20">
-              <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                <FileCheck2 className="h-4 w-4" /> Pipeline Parameters
-              </CardTitle>
+          {/* Parameters */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Evaluation Parameters</CardTitle>
             </CardHeader>
-            <CardContent className="pt-6 space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <Label className="text-[10px] font-mono tracking-widest uppercase text-muted-foreground flex items-center justify-between">
-                    <span>Target Corpus</span>
-                    <span className="text-destructive">*</span>
+            <CardContent className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Dataset <span className="text-destructive">*</span>
                   </Label>
-                  {isLoadingDatasets ? (
-                    <Skeleton className="h-10 w-full rounded-none" />
-                  ) : (
+                  {isLoadingDatasets ? <Skeleton className="h-10 w-full" /> : (
                     <Select value={selectedDatasetId} onValueChange={setSelectedDatasetId}>
-                      <SelectTrigger className="rounded-none bg-background/50 font-mono text-sm h-10">
+                      <SelectTrigger>
                         <SelectValue placeholder="Select dataset" />
                       </SelectTrigger>
-                      <SelectContent className="rounded-none font-mono text-sm">
+                      <SelectContent>
                         {datasets?.map((d) => (
-                          <SelectItem key={d.id} value={d.id.toString()}>
-                            {d.datasetName}
-                          </SelectItem>
+                          <SelectItem key={d.id} value={d.id.toString()}>{d.datasetName}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
                 </div>
-
-                <div className="space-y-3">
-                  <Label className="text-[10px] font-mono tracking-widest uppercase text-muted-foreground">
-                    Model Filter (Optional)
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Filter by Model <span className="text-muted-foreground text-xs">(optional)</span>
                   </Label>
-                  {isLoadingModels ? (
-                    <Skeleton className="h-10 w-full rounded-none" />
-                  ) : (
+                  {isLoadingModels ? <Skeleton className="h-10 w-full" /> : (
                     <Select value={selectedModelId} onValueChange={setSelectedModelId}>
-                      <SelectTrigger className="rounded-none bg-background/50 font-mono text-sm h-10">
-                        <SelectValue placeholder="ALL SUBJECTS" />
+                      <SelectTrigger>
+                        <SelectValue placeholder="All models" />
                       </SelectTrigger>
-                      <SelectContent className="rounded-none font-mono text-sm">
-                        <SelectItem value="all">-- ALL SUBJECTS --</SelectItem>
+                      <SelectContent>
+                        <SelectItem value="all">All models</SelectItem>
                         {models?.map((m) => (
-                          <SelectItem key={m.id} value={m.id.toString()}>
-                            {m.modelName}
-                          </SelectItem>
+                          <SelectItem key={m.id} value={m.id.toString()}>{m.modelName}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -190,55 +153,54 @@ export default function Evaluate() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-border/50">
-                <Button
-                  className="w-full rounded-none font-mono tracking-widest uppercase text-sm h-14 bg-primary text-primary-foreground hover:bg-primary/90 transition-all disabled:opacity-50 group"
-                  onClick={handleEvaluate}
-                  disabled={runJudge.isPending || !isReady}
-                >
-                  {runJudge.isPending ? (
-                    <span className="flex items-center gap-2">
-                      <div className="h-4 w-4 border-2 border-primary-foreground border-r-transparent rounded-full animate-spin" />
-                      Executing Pipeline...
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <Play className="h-5 w-5 fill-current" />
-                      Initiate Evaluation
-                    </span>
-                  )}
-                </Button>
-              </div>
+              <Button
+                className="w-full h-11 gap-2"
+                onClick={handleEvaluate}
+                disabled={runJudge.isPending || !isReady}
+              >
+                {runJudge.isPending ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-white border-r-transparent rounded-full animate-spin" />
+                    Running evaluation...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 fill-current" />
+                    Start Evaluation
+                  </>
+                )}
+              </Button>
+
+              {!isReady && !runJudge.isPending && (
+                <p className="text-xs text-muted-foreground text-center">
+                  {!judgeModel?.modelId ? "Configure a judge model to continue" : "Select a dataset to continue"}
+                </p>
+              )}
 
               {result && (
-                <div className="mt-8 pt-6 border-t border-border/50 animate-in fade-in slide-in-from-bottom-4">
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">Execution Summary</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="rounded-none bg-primary/5 border-primary/30">
-                      <CardContent className="p-4 flex flex-col items-center">
-                        <CheckSquare className="h-6 w-6 text-primary mb-2 opacity-80" />
-                        <div className="text-3xl font-light font-mono text-primary">{result.evaluated}</div>
-                        <div className="text-[10px] font-mono tracking-widest uppercase text-primary/70 mt-1">Evaluated</div>
-                      </CardContent>
-                    </Card>
-                    <Card className="rounded-none bg-muted/20 border-border">
-                      <CardContent className="p-4 flex flex-col items-center">
-                        <AlertTriangle className="h-6 w-6 text-muted-foreground mb-2 opacity-50" />
-                        <div className="text-3xl font-light font-mono text-muted-foreground">{result.skipped}</div>
-                        <div className="text-[10px] font-mono tracking-widest uppercase text-muted-foreground/70 mt-1">Skipped</div>
-                      </CardContent>
-                    </Card>
+                <div className="pt-4 border-t border-border space-y-3">
+                  <p className="text-sm font-semibold">Results</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
+                      <div>
+                        <p className="text-xl font-bold text-green-700">{result.evaluated}</p>
+                        <p className="text-xs text-green-600">Evaluated</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 p-3 bg-muted border border-border rounded-lg">
+                      <SkipForward className="h-5 w-5 text-muted-foreground shrink-0" />
+                      <div>
+                        <p className="text-xl font-bold text-foreground">{result.skipped}</p>
+                        <p className="text-xs text-muted-foreground">Skipped</p>
+                      </div>
+                    </div>
                   </div>
                   {result.errors.length > 0 && (
-                    <Alert variant="destructive" className="mt-4 rounded-none border-destructive/30 bg-destructive/10">
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle className="font-mono text-xs uppercase tracking-widest">Execution Faults</AlertTitle>
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
                       <AlertDescription>
-                        <ul className="list-none mt-2 max-h-32 overflow-y-auto space-y-1">
-                          {result.errors.map((err, i) => (
-                            <li key={i} className="text-[10px] font-mono text-destructive/90 break-all">{err}</li>
-                          ))}
-                        </ul>
+                        {result.errors.length} error(s) occurred during evaluation.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -248,33 +210,28 @@ export default function Evaluate() {
           </Card>
         </div>
 
-        <div className="md:col-span-4 space-y-6">
-          <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader className="border-b border-border/50 bg-muted/20">
-              <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
-                Evaluation Criteria
-              </CardTitle>
+        {/* Rubric */}
+        <div className="md:col-span-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Scoring Rubric</CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 px-0 pb-0">
-              <div className="flex flex-col divide-y divide-border/30">
-                {[
-                  { score: 5, label: "EXCELLENT", color: "bg-green-500/10 text-green-500", desc: "Meets or exceeds ground truth standards." },
-                  { score: 4, label: "GOOD", color: "bg-cyan-500/10 text-cyan-500", desc: "Clinically sound, minor omissions." },
-                  { score: 3, label: "PARTIAL", color: "bg-yellow-500/10 text-yellow-500", desc: "Acceptable context, lacking precision." },
-                  { score: 2, label: "WEAK", color: "bg-orange-500/10 text-orange-500", desc: "Major clinical omission or flawed reasoning." },
-                  { score: 1, label: "CRITICAL", color: "bg-destructive/10 text-destructive", desc: "Hallucination or dangerous inaccuracy." },
-                ].map(({ score, label, color, desc }) => (
-                  <div key={score} className="p-4 flex flex-col gap-2 hover:bg-muted/10 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline" className={`rounded-none font-mono text-xs border border-current ${color}`}>
-                        {score}.0
-                      </Badge>
-                      <span className="font-mono text-xs font-bold tracking-widest uppercase">{label}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground ml-12 leading-relaxed opacity-80">{desc}</span>
+            <CardContent className="p-0">
+              {[
+                { score: 5, label: "Excellent", desc: "Meets or exceeds ground truth", bg: "bg-green-50", text: "text-green-700", badge: "bg-green-100 text-green-700" },
+                { score: 4, label: "Good", desc: "Clinically sound, minor omissions", bg: "bg-blue-50", text: "text-blue-700", badge: "bg-blue-100 text-blue-700" },
+                { score: 3, label: "Partial", desc: "Acceptable but lacking precision", bg: "bg-amber-50", text: "text-amber-700", badge: "bg-amber-100 text-amber-700" },
+                { score: 2, label: "Weak", desc: "Major clinical omission", bg: "bg-orange-50", text: "text-orange-700", badge: "bg-orange-100 text-orange-700" },
+                { score: 1, label: "Critical", desc: "Hallucination or dangerous error", bg: "bg-red-50", text: "text-red-700", badge: "bg-red-100 text-red-700" },
+              ].map(({ score, label, desc, bg, text, badge }) => (
+                <div key={score} className={`flex items-start gap-3 p-3 border-b border-border last:border-0 ${bg}`}>
+                  <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 ${badge}`}>{score}</span>
+                  <div>
+                    <p className={`text-sm font-semibold ${text}`}>{label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>

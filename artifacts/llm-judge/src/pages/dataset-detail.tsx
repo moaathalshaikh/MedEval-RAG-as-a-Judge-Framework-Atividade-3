@@ -1,12 +1,12 @@
 import { useParams, Link } from "wouter";
 import { useGetDataset, useListQuestions, useCreateQuestion, useDeleteQuestion, useUploadDataset, getGetDatasetQueryKey, getListQuestionsQueryKey, CreateQuestionBodyQuestionType, UploadDatasetBodyFormat } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Upload, Database, ChevronLeft, FileCode, CheckSquare, AlignLeft } from "lucide-react";
+import { Trash2, Upload, ChevronLeft, Plus } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -29,11 +29,11 @@ export default function DatasetDetail() {
   const { id } = useParams();
   const datasetId = parseInt(id || "0");
   const { toast } = useToast();
-  
+
   const { data: dataset, isLoading: isDatasetLoading } = useGetDataset(datasetId, {
     query: { enabled: !!datasetId, queryKey: getGetDatasetQueryKey(datasetId) }
   });
-  
+
   const { data: questions, isLoading: isQuestionsLoading } = useListQuestions({ datasetId }, {
     query: { enabled: !!datasetId, queryKey: getListQuestionsQueryKey({ datasetId }) }
   });
@@ -61,13 +61,13 @@ export default function DatasetDetail() {
         queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
         queryClient.invalidateQueries({ queryKey: getGetDatasetQueryKey(datasetId) });
         form.reset();
-        toast({ title: "Entry Appended", description: "Question recorded in database." });
+        toast({ title: "Question added", description: "Question saved to dataset." });
       },
     });
   }
 
   function handleDelete(questionId: number) {
-    if (confirm("Delete this question from the corpus?")) {
+    if (confirm("Delete this question?")) {
       deleteQuestion.mutate({ id: questionId }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
@@ -84,73 +84,57 @@ export default function DatasetDetail() {
         queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
         queryClient.invalidateQueries({ queryKey: getGetDatasetQueryKey(datasetId) });
         setUploadContent("");
-        toast({
-          title: "Batch Ingestion Complete",
-          description: `Imported: ${res.imported} | Skipped: ${res.skipped} | Errors: ${res.errors.length}`,
-        });
+        toast({ title: "Bulk upload complete", description: `Imported: ${res.imported}, Skipped: ${res.skipped}` });
       },
       onError: (err) => {
-        toast({
-          title: "Ingestion Fault",
-          description: err.error || "Unknown error occurred",
-          variant: "destructive",
-        });
+        toast({ title: "Upload failed", description: err.error || "Unknown error", variant: "destructive" });
       }
     });
   }
 
-  if (isDatasetLoading) return <Skeleton className="h-[500px] w-full rounded-none" />;
-  if (!dataset) return <div className="text-center py-20 font-mono uppercase text-muted-foreground tracking-widest text-xs">Dataset Missing in DB</div>;
+  if (isDatasetLoading) return <Skeleton className="h-[400px] w-full" />;
+  if (!dataset) return (
+    <div className="text-center py-20">
+      <p className="text-muted-foreground">Dataset not found.</p>
+      <Link href="/datasets"><Button variant="link" className="mt-2">Back to Datasets</Button></Link>
+    </div>
+  );
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="space-y-8"
-    >
-      <div className="border-b border-border pb-6 flex flex-col gap-4">
-        <Link href="/datasets" className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors flex items-center w-fit">
-          <ChevronLeft className="h-3 w-3 mr-1" /> Return to Datasets
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
+      {/* Header */}
+      <div>
+        <Link href="/datasets" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3">
+          <ChevronLeft className="h-4 w-4" /> Back to Datasets
         </Link>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight uppercase text-foreground flex items-center gap-3">
-              <Database className="h-6 w-6 text-primary" />
-              {dataset.datasetName}
-            </h2>
-            <div className="flex items-center gap-3 mt-3">
-              <Badge variant="outline" className="rounded-none font-mono text-[9px] uppercase tracking-widest bg-muted/20 text-muted-foreground border-border">
-                {dataset.domain} Domain
-              </Badge>
-              <Badge variant="outline" className="rounded-none font-mono text-[9px] uppercase tracking-widest bg-primary/10 text-primary border-primary/20">
-                n = {dataset.questionCount} Items
-              </Badge>
-            </div>
-          </div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-foreground">{dataset.datasetName}</h1>
+          <Badge variant="secondary">{dataset.domain}</Badge>
+          <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">{dataset.questionCount} questions</Badge>
         </div>
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-2">
-        <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm">
-          <CardHeader className="border-b border-border/50 bg-muted/20">
-            <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <FileCode className="h-4 w-4" /> Single Entry Inject
+      {/* Add / Bulk upload */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Plus className="h-4 w-4 text-primary" /> Add Question
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-6">
+          <CardContent>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                 <FormField
                   control={form.control}
                   name="questionText"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-[10px] font-mono tracking-widest uppercase">Input Query</FormLabel>
+                      <FormLabel className="text-sm">Question</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Formulate clinical scenario..." className="min-h-24 rounded-none bg-background/50 font-mono text-sm resize-y" {...field} />
+                        <Textarea placeholder="Enter the clinical question..." className="min-h-[80px] resize-y" {...field} />
                       </FormControl>
-                      <FormMessage className="text-[10px] font-mono" />
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
@@ -159,11 +143,11 @@ export default function DatasetDetail() {
                   name="goldAnswer"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-[10px] font-mono tracking-widest uppercase text-green-500">Ground Truth Answer</FormLabel>
+                      <FormLabel className="text-sm text-green-700">Gold Answer</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Define acceptable target criteria..." className="min-h-24 rounded-none bg-background/50 font-mono text-sm border-green-500/30 focus-visible:ring-green-500/50 resize-y" {...field} />
+                        <Textarea placeholder="The correct / reference answer..." className="min-h-[80px] resize-y border-green-300 focus-visible:ring-green-400" {...field} />
                       </FormControl>
-                      <FormMessage className="text-[10px] font-mono" />
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
@@ -172,105 +156,103 @@ export default function DatasetDetail() {
                   name="questionType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-[10px] font-mono tracking-widest uppercase">Question Modality</FormLabel>
+                      <FormLabel className="text-sm">Question Type</FormLabel>
                       <Select onValueChange={field.onChange} defaultValue={field.value}>
                         <FormControl>
-                          <SelectTrigger className="rounded-none bg-background/50 font-mono text-sm">
+                          <SelectTrigger>
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                         </FormControl>
-                        <SelectContent className="rounded-none font-mono text-sm">
-                          <SelectItem value={CreateQuestionBodyQuestionType.OPEN_ENDED}>Open Ended Generative</SelectItem>
-                          <SelectItem value={CreateQuestionBodyQuestionType.MCQ}>Multiple Choice</SelectItem>
+                        <SelectContent>
+                          <SelectItem value={CreateQuestionBodyQuestionType.OPEN_ENDED}>Open Ended</SelectItem>
+                          <SelectItem value={CreateQuestionBodyQuestionType.MCQ}>Multiple Choice (MCQ)</SelectItem>
                         </SelectContent>
                       </Select>
-                      <FormMessage className="text-[10px] font-mono" />
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
-                <Button type="submit" className="w-full rounded-none font-mono tracking-widest uppercase text-xs h-10" disabled={createQuestion.isPending}>
-                  {createQuestion.isPending ? "Transmitting..." : "Append Entry"}
+                <Button type="submit" className="w-full" disabled={createQuestion.isPending}>
+                  {createQuestion.isPending ? "Saving..." : "Add Question"}
                 </Button>
               </form>
             </Form>
           </CardContent>
         </Card>
 
-        <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm flex flex-col">
-          <CardHeader className="border-b border-border/50 bg-muted/20">
-            <CardTitle className="text-xs font-mono uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-              <Upload className="h-4 w-4" /> Bulk Data Ingestion
+        <Card className="flex flex-col">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Upload className="h-4 w-4 text-primary" /> Bulk Upload
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-6 flex flex-col flex-1 gap-5">
-            <div className="space-y-3">
-              <FormLabel className="text-[10px] font-mono tracking-widest uppercase block">Payload Format</FormLabel>
+          <CardContent className="flex flex-col flex-1 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Format</label>
               <Select value={uploadFormat} onValueChange={(v: UploadDatasetBodyFormat) => setUploadFormat(v)}>
-                <SelectTrigger className="rounded-none bg-background/50 font-mono text-sm">
+                <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="rounded-none font-mono text-sm">
+                <SelectContent>
                   <SelectItem value={UploadDatasetBodyFormat.jsonl}>JSON Lines (.jsonl)</SelectItem>
-                  <SelectItem value={UploadDatasetBodyFormat.csv}>CSV Dump (.csv)</SelectItem>
+                  <SelectItem value={UploadDatasetBodyFormat.csv}>CSV (.csv)</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground font-mono">
+                {uploadFormat === 'csv' ? 'questionText,goldAnswer,questionType' : '{"questionText":"...","goldAnswer":"...","questionType":"OPEN_ENDED"}'}
+              </p>
             </div>
-            <div className="space-y-3 flex-1 flex flex-col">
-              <FormLabel className="text-[10px] font-mono tracking-widest uppercase flex items-center justify-between">
-                <span>Raw Content</span>
-                <span className="text-muted-foreground/50 lowercase">
-                  {uploadFormat === 'csv' ? 'questionText,goldAnswer,questionType' : '{"questionText": "...", "goldAnswer": "..."}'}
-                </span>
-              </FormLabel>
-              <Textarea 
-                value={uploadContent}
-                onChange={(e) => setUploadContent(e.target.value)}
-                placeholder="Paste payload dump here..."
-                className="flex-1 min-h-[200px] rounded-none bg-background/50 font-mono text-xs whitespace-pre resize-none"
-              />
-            </div>
-            <Button onClick={handleUpload} disabled={uploadDataset.isPending || !uploadContent.trim()} variant="secondary" className="w-full rounded-none font-mono tracking-widest uppercase text-xs h-10 mt-auto">
-              <Upload className="mr-2 h-4 w-4" />
-              {uploadDataset.isPending ? "Processing Payload..." : "Execute Bulk Inject"}
+            <Textarea
+              value={uploadContent}
+              onChange={(e) => setUploadContent(e.target.value)}
+              placeholder="Paste your data here..."
+              className="flex-1 min-h-[160px] font-mono text-xs resize-none"
+            />
+            <Button onClick={handleUpload} disabled={uploadDataset.isPending || !uploadContent.trim()} variant="secondary" className="w-full gap-2">
+              <Upload className="h-4 w-4" />
+              {uploadDataset.isPending ? "Uploading..." : "Upload"}
             </Button>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="rounded-none border-border bg-card/50 backdrop-blur-sm">
+      {/* Questions Table */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-semibold">Questions ({questions?.length ?? 0})</CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           {isQuestionsLoading ? (
-            <div className="p-6"><Skeleton className="h-[400px] w-full rounded-none" /></div>
+            <div className="p-6"><Skeleton className="h-64 w-full" /></div>
           ) : (
             <Table>
-              <TableHeader className="bg-muted/30">
-                <TableRow className="hover:bg-transparent border-border/50">
-                  <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 w-16">QID</TableHead>
-                  <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 w-24">Type</TableHead>
-                  <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 w-[40%]">Input Prompt</TableHead>
-                  <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12">Target Criteria</TableHead>
-                  <TableHead className="text-[10px] font-mono tracking-widest uppercase h-12 w-16 text-right">Cmd</TableHead>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-4 w-12">#</TableHead>
+                  <TableHead className="w-24">Type</TableHead>
+                  <TableHead className="w-[40%]">Question</TableHead>
+                  <TableHead>Gold Answer</TableHead>
+                  <TableHead className="text-right pr-4 w-14"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {questions?.map((q) => (
-                  <TableRow key={q.id} className="border-border/30 hover:bg-muted/20">
-                    <TableCell className="font-mono text-xs text-muted-foreground">{String(q.id).padStart(5, '0')}</TableCell>
+                  <TableRow key={q.id} className="hover:bg-muted/40 align-top">
+                    <TableCell className="pl-4 text-muted-foreground text-xs">{q.id}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="rounded-none font-mono text-[9px] border-border text-muted-foreground flex items-center justify-center gap-1 w-fit">
-                        {q.questionType === 'MCQ' ? <CheckSquare className="h-3 w-3" /> : <AlignLeft className="h-3 w-3" />}
+                      <Badge variant={q.questionType === 'MCQ' ? 'secondary' : 'outline'} className="text-xs">
                         {q.questionType}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm font-mono leading-relaxed opacity-90 line-clamp-3">{q.questionText}</TableCell>
-                    <TableCell className="text-sm font-mono leading-relaxed text-green-500/80 line-clamp-3">{q.goldAnswer}</TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-sm leading-relaxed line-clamp-3">{q.questionText}</TableCell>
+                    <TableCell className="text-sm text-green-700 leading-relaxed line-clamp-3">{q.goldAnswer}</TableCell>
+                    <TableCell className="text-right pr-4">
                       <Button
                         variant="ghost"
                         size="icon"
                         onClick={() => handleDelete(q.id)}
                         disabled={deleteQuestion.isPending}
-                        className="h-8 w-8 rounded-none text-destructive hover:bg-destructive/20 hover:text-destructive transition-colors"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -279,8 +261,8 @@ export default function DatasetDetail() {
                 ))}
                 {(!questions || questions.length === 0) && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-16 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                      Corpus empty. Waiting for records.
+                    <TableCell colSpan={5} className="text-center py-16 text-sm text-muted-foreground">
+                      No questions yet. Add your first question above.
                     </TableCell>
                   </TableRow>
                 )}
