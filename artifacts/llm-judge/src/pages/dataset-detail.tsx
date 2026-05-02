@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye } from "lucide-react";
+import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye, AlertTriangle } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -145,7 +145,16 @@ export default function DatasetDetail() {
         invalidate();
         setUploadResult(res);
         onCleanup?.();
-        toast({ title: successMsg, description: `${res.imported} questions imported` });
+        const allDuplicates = res.imported === 0 && (res.duplicates ?? 0) > 0;
+        if (allDuplicates) {
+          toast({
+            title: "⚠ All questions already exist",
+            description: `${res.duplicates} duplicate(s) skipped — nothing was added.`,
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: successMsg, description: `${res.imported} questions imported` });
+        }
         setTimeout(() => tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
       },
       onError: (err) => toast({ title: "Upload failed", description: (err as any).error || "Error", variant: "destructive" }),
@@ -265,26 +274,47 @@ export default function DatasetDetail() {
       </div>
 
       {/* Upload result */}
-      {uploadResult && (
-        <Alert className={uploadResult.errors.length > 0 ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"}>
-          <CheckCircle2 className="h-4 w-4 text-green-600" />
-          <AlertDescription className="flex flex-wrap gap-x-3 gap-y-1 items-center">
-            <span className="font-semibold text-green-700">{uploadResult.imported} imported</span>
-            {(uploadResult.duplicates ?? 0) > 0 && (
-              <span className="text-blue-600">· {uploadResult.duplicates} duplicates skipped</span>
-            )}
-            {uploadResult.skipped > 0 && (
-              <span className="text-muted-foreground">· {uploadResult.skipped} invalid rows skipped</span>
-            )}
-            {uploadResult.errors.length > 0 && (
-              <details className="w-full mt-1 text-xs text-amber-700">
-                <summary className="cursor-pointer">{uploadResult.errors.length} warning(s)</summary>
-                <pre className="mt-1 whitespace-pre-wrap">{uploadResult.errors.slice(0, 10).join("\n")}</pre>
-              </details>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+      {uploadResult && (() => {
+        const allDup = uploadResult.imported === 0 && (uploadResult.duplicates ?? 0) > 0;
+        const partialDup = uploadResult.imported > 0 && (uploadResult.duplicates ?? 0) > 0;
+        return (
+          <Alert className={
+            allDup
+              ? "border-orange-400 bg-orange-50"
+              : partialDup
+                ? "border-amber-200 bg-amber-50"
+                : "border-green-200 bg-green-50"
+          }>
+            {allDup
+              ? <AlertTriangle className="h-4 w-4 text-orange-500" />
+              : <CheckCircle2 className="h-4 w-4 text-green-600" />
+            }
+            <AlertDescription className="flex flex-wrap gap-x-3 gap-y-1 items-center">
+              {allDup ? (
+                <span className="font-semibold text-orange-700">
+                  Nothing imported — all {uploadResult.duplicates} question(s) already exist in this dataset
+                </span>
+              ) : (
+                <>
+                  <span className="font-semibold text-green-700">{uploadResult.imported} imported</span>
+                  {(uploadResult.duplicates ?? 0) > 0 && (
+                    <span className="text-amber-700 font-medium">· {uploadResult.duplicates} duplicates skipped</span>
+                  )}
+                  {uploadResult.skipped > 0 && (
+                    <span className="text-muted-foreground">· {uploadResult.skipped} invalid rows skipped</span>
+                  )}
+                </>
+              )}
+              {uploadResult.errors.length > 0 && (
+                <details className="w-full mt-1 text-xs text-amber-700">
+                  <summary className="cursor-pointer">{uploadResult.errors.length} warning(s)</summary>
+                  <pre className="mt-1 whitespace-pre-wrap">{uploadResult.errors.slice(0, 10).join("\n")}</pre>
+                </details>
+              )}
+            </AlertDescription>
+          </Alert>
+        );
+      })()}
 
       {/* Bulk Upload */}
       <Card>
