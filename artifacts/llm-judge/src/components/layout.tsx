@@ -1,15 +1,15 @@
 import { Link, useLocation } from "wouter";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { LayoutDashboard, Database, Cuboid, PlaySquare, FileCheck2, BarChart3, Settings, Table } from "lucide-react";
+import { LayoutDashboard, Database, Cuboid, Upload, FileCheck2, BarChart3, Settings, Table } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
   const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Models", href: "/models", icon: Cuboid },
+    { name: "SLM Models", href: "/models", icon: Cuboid },
     { name: "Datasets", href: "/datasets", icon: Database },
-    { name: "Inference", href: "/inference", icon: PlaySquare },
+    { name: "Import Responses", href: "/import", icon: Upload },
     { name: "Evaluate", href: "/evaluate", icon: FileCheck2 },
     { name: "Results", href: "/results", icon: Table },
     { name: "Analytics", href: "/analytics", icon: BarChart3 },

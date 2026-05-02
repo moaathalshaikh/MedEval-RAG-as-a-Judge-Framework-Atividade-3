@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ScoreBadge } from "@/components/score-badge";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { PlaySquare, FileCheck2 } from "lucide-react";
+import { Upload, FileCheck2 } from "lucide-react";
 
 export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetAnalyticsSummary();
@@ -60,10 +60,10 @@ export default function Dashboard() {
             <CardDescription>Start new evaluation pipelines</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Link href="/inference" className="block">
+            <Link href="/import" className="block">
               <Button className="w-full justify-start h-16 text-lg" variant="outline">
-                <PlaySquare className="mr-4 h-6 w-6" />
-                Run Inference
+                <Upload className="mr-4 h-6 w-6" />
+                Import Responses
               </Button>
             </Link>
             <Link href="/evaluate" className="block">

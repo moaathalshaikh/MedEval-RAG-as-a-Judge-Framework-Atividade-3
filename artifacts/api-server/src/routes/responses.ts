@@ -121,6 +121,55 @@ router.post("/responses/generate", async (req, res): Promise<void> => {
   res.json({ generated, skipped, errors });
 });
 
+router.post("/responses/import", async (req, res): Promise<void> => {
+  const body = req.body as { responses?: unknown };
+  if (!body || !Array.isArray(body.responses)) {
+    res.status(400).json({ error: "Expected { responses: [{ questionId, modelId, responseText, inferenceTimeMs? }] }" });
+    return;
+  }
+
+  const responses = body.responses as Array<{
+    questionId: number;
+    modelId: number;
+    responseText: string;
+    inferenceTimeMs?: number | null;
+  }>;
+  let imported = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const r of responses) {
+    try {
+      const [question] = await db.select().from(questionsTable).where(eq(questionsTable.id, r.questionId));
+      if (!question) {
+        skipped++;
+        errors.push(`Question ${r.questionId} not found`);
+        continue;
+      }
+
+      const [model] = await db.select().from(modelsTable).where(eq(modelsTable.id, r.modelId));
+      if (!model) {
+        skipped++;
+        errors.push(`Model ${r.modelId} not found`);
+        continue;
+      }
+
+      await db.insert(modelResponsesTable).values({
+        questionId: r.questionId,
+        modelId: r.modelId,
+        responseText: r.responseText,
+        inferenceTimeMs: r.inferenceTimeMs ?? null,
+      });
+      imported++;
+    } catch (e) {
+      skipped++;
+      errors.push(`Entry error: ${String(e)}`);
+    }
+  }
+
+  res.json({ imported, skipped, errors });
+});
+
 router.get("/responses/:id", async (req, res): Promise<void> => {
   const params = GetResponseParams.safeParse(req.params);
   if (!params.success) {
