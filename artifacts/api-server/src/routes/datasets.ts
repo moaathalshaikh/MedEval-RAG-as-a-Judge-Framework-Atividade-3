@@ -103,7 +103,15 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
 
   let imported = 0;
   let skipped = 0;
+  let duplicates = 0;
   const errors: string[] = [];
+
+  // Fetch existing question texts for this dataset (for duplicate detection)
+  const existingRows = await db
+    .select({ questionText: questionsTable.questionText })
+    .from(questionsTable)
+    .where(eq(questionsTable.datasetId, datasetId));
+  const existingTexts = new Set(existingRows.map(r => r.questionText.trim().toLowerCase()));
 
   try {
     if (format === "jsonl") {
@@ -135,12 +143,18 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
             continue;
           }
 
+          if (existingTexts.has(questionText.trim().toLowerCase())) {
+            duplicates++;
+            continue;
+          }
+
           const metadata: Record<string, unknown> = obj.metadata ?? {};
           if (obj.Must_have ?? obj.must_have) metadata.must_have = obj.Must_have ?? obj.must_have;
           if (obj.Nice_to_have ?? obj.nice_to_have) metadata.nice_to_have = obj.Nice_to_have ?? obj.nice_to_have;
           if (obj.choices) metadata.choices = obj.choices;
 
           await db.insert(questionsTable).values({ datasetId, questionText, goldAnswer, questionType, metadata });
+          existingTexts.add(questionText.trim().toLowerCase());
           imported++;
         } catch (e) {
           skipped++;
@@ -212,12 +226,18 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
             continue;
           }
 
+          if (existingTexts.has(questionText.trim().toLowerCase())) {
+            duplicates++;
+            continue;
+          }
+
           // For MCQ without answer, goldAnswer can be empty (set placeholder)
           if (!goldAnswer) {
             goldAnswer = "(no answer provided)";
           }
 
           await db.insert(questionsTable).values({ datasetId, questionText, goldAnswer, questionType, metadata });
+          existingTexts.add(questionText.trim().toLowerCase());
           imported++;
         } catch (e) {
           skipped++;
@@ -230,7 +250,7 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json({ imported, skipped, errors });
+  res.json({ imported, skipped, duplicates, errors });
 });
 
 export default router;

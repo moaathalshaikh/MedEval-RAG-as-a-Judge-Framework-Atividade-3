@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X } from "lucide-react";
+import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -20,6 +20,7 @@ import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 
 const questionSchema = z.object({
@@ -128,8 +129,9 @@ export default function DatasetDetail() {
   const deleteQuestion = useDeleteQuestion();
   const uploadDataset = useUploadDataset();
 
-  const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; duplicates?: number; errors: string[] } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  const [viewQ, setViewQ] = useState<{ questionText: string; goldAnswer: string; questionType: string } | null>(null);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
@@ -157,6 +159,13 @@ export default function DatasetDetail() {
   });
 
   function onSubmit(data: QuestionFormValues) {
+    const isDuplicate = questions?.some(
+      q => q.questionText.trim().toLowerCase() === data.questionText.trim().toLowerCase()
+    );
+    if (isDuplicate) {
+      toast({ title: "Duplicate question", description: "This question text already exists in the dataset.", variant: "destructive" });
+      return;
+    }
     createQuestion.mutate({ data: { ...data, datasetId } }, {
       onSuccess: () => { invalidate(); form.reset(); toast({ title: "Question added" }); },
     });
@@ -259,11 +268,16 @@ export default function DatasetDetail() {
       {uploadResult && (
         <Alert className={uploadResult.errors.length > 0 ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"}>
           <CheckCircle2 className="h-4 w-4 text-green-600" />
-          <AlertDescription>
-            <span className="font-semibold text-green-700">{uploadResult.imported} questions imported</span>
-            {uploadResult.skipped > 0 && <span className="text-muted-foreground ml-2">· {uploadResult.skipped} skipped</span>}
+          <AlertDescription className="flex flex-wrap gap-x-3 gap-y-1 items-center">
+            <span className="font-semibold text-green-700">{uploadResult.imported} imported</span>
+            {(uploadResult.duplicates ?? 0) > 0 && (
+              <span className="text-blue-600">· {uploadResult.duplicates} duplicates skipped</span>
+            )}
+            {uploadResult.skipped > 0 && (
+              <span className="text-muted-foreground">· {uploadResult.skipped} invalid rows skipped</span>
+            )}
             {uploadResult.errors.length > 0 && (
-              <details className="mt-2 text-xs text-amber-700">
+              <details className="w-full mt-1 text-xs text-amber-700">
                 <summary className="cursor-pointer">{uploadResult.errors.length} warning(s)</summary>
                 <pre className="mt-1 whitespace-pre-wrap">{uploadResult.errors.slice(0, 10).join("\n")}</pre>
               </details>
@@ -466,21 +480,32 @@ export default function DatasetDetail() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {questions?.map((q) => (
+                {questions?.map((q, idx) => (
                   <TableRow key={q.id} className="hover:bg-muted/40 align-top">
-                    <TableCell className="pl-4 text-muted-foreground text-xs">{q.id}</TableCell>
+                    <TableCell className="pl-4 text-muted-foreground text-xs">{idx + 1}</TableCell>
                     <TableCell>
                       <Badge variant={q.questionType === "MCQ" ? "secondary" : "outline"} className="text-xs">
                         {q.questionType}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm leading-relaxed line-clamp-3">{q.questionText}</TableCell>
-                    <TableCell className="text-sm text-green-700 leading-relaxed line-clamp-3">{q.goldAnswer}</TableCell>
-                    <TableCell className="text-right pr-4">
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(q.id)} disabled={deleteQuestion.isPending}
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                    <TableCell className="text-sm leading-relaxed">
+                      <p className="line-clamp-2">{q.questionText}</p>
+                    </TableCell>
+                    <TableCell className="text-sm text-green-700 leading-relaxed">
+                      <p className="line-clamp-2">{q.goldAnswer}</p>
+                    </TableCell>
+                    <TableCell className="text-right pr-2">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon"
+                          onClick={() => setViewQ({ questionText: q.questionText, goldAnswer: q.goldAnswer, questionType: q.questionType })}
+                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
+                          <Eye className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(q.id)} disabled={deleteQuestion.isPending}
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -496,6 +521,29 @@ export default function DatasetDetail() {
           )}
         </CardContent>
       </Card>
+      {/* Full question view dialog */}
+      <Dialog open={!!viewQ} onOpenChange={() => setViewQ(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Badge variant={viewQ?.questionType === "MCQ" ? "secondary" : "outline"} className="text-xs">
+                {viewQ?.questionType}
+              </Badge>
+              Full Question
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wide">Question</p>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">{viewQ?.questionText}</p>
+            </div>
+            <div className="border-t pt-4">
+              <p className="text-xs font-semibold text-green-700 mb-1.5 uppercase tracking-wide">Gold Answer</p>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap text-green-800">{viewQ?.goldAnswer}</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }
