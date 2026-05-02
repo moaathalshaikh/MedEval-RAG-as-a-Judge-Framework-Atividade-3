@@ -1,10 +1,9 @@
-import { useListModels, useCreateModel, useDeleteModel, getListModelsQueryKey, CreateModelBodyProvider } from "@workspace/api-client-react";
+import { useListModels, useCreateModel, useDeleteModel, getListModelsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Plus } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -15,9 +14,8 @@ import { motion } from "framer-motion";
 
 const modelSchema = z.object({
   modelName: z.string().min(1, "Model name is required"),
-  provider: z.nativeEnum(CreateModelBodyProvider),
-  version: z.string().min(1, "Version is required"),
-  precisionParam: z.string().optional(),
+  modelSize: z.string().min(1, "Model size is required"),
+  notes: z.string().optional(),
 });
 
 type ModelFormValues = z.infer<typeof modelSchema>;
@@ -30,29 +28,25 @@ export default function Models() {
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(modelSchema),
-    defaultValues: {
-      modelName: "",
-      provider: CreateModelBodyProvider.OpenAI,
-      version: "",
-      precisionParam: "",
-    },
+    defaultValues: { modelName: "", modelSize: "", notes: "" },
   });
 
   function onSubmit(data: ModelFormValues) {
-    createModel.mutate({ data }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() });
-        form.reset();
-      },
-    });
+    createModel.mutate(
+      { data: { modelName: data.modelName, modelSize: data.modelSize, notes: data.notes || null } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() });
+          form.reset();
+        },
+      }
+    );
   }
 
   function handleDelete(id: number) {
     if (confirm("Delete this model?")) {
       deleteModel.mutate({ id }, {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() });
-        },
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() }),
       });
     }
   }
@@ -61,10 +55,11 @@ export default function Models() {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">SLM Models</h1>
-        <p className="text-sm text-muted-foreground mt-1">Register and manage models to benchmark</p>
+        <p className="text-sm text-muted-foreground mt-1">Register the small language models you want to benchmark</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-12">
+        {/* Form */}
         <Card className="md:col-span-4 h-fit">
           <CardHeader className="pb-4">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -87,54 +82,37 @@ export default function Models() {
                     </FormItem>
                   )}
                 />
+
                 <FormField
                   control={form.control}
-                  name="provider"
+                  name="modelSize"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm">Provider</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select provider" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value={CreateModelBodyProvider.OpenAI}>OpenAI</SelectItem>
-                          <SelectItem value={CreateModelBodyProvider.DeepSeek}>DeepSeek</SelectItem>
-                          <SelectItem value={CreateModelBodyProvider.Claude}>Claude</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="version"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-sm">Version</FormLabel>
+                      <FormLabel className="text-sm">Model Size</FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. gpt-4o" {...field} />
+                        <Input placeholder="e.g. 7B, 13B, 70B" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
                 <FormField
                   control={form.control}
-                  name="precisionParam"
+                  name="notes"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-sm">Precision <span className="text-muted-foreground">(optional)</span></FormLabel>
+                      <FormLabel className="text-sm">
+                        Notes <span className="text-muted-foreground font-normal">(optional)</span>
+                      </FormLabel>
                       <FormControl>
-                        <Input placeholder="e.g. fp16, int8" {...field} />
+                        <Input placeholder="e.g. fine-tuned on MedQA" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
                 <Button type="submit" className="w-full" disabled={createModel.isPending}>
                   {createModel.isPending ? "Saving..." : "Register Model"}
                 </Button>
@@ -143,6 +121,7 @@ export default function Models() {
           </CardContent>
         </Card>
 
+        {/* Table */}
         <Card className="md:col-span-8">
           <CardContent className="p-0">
             {isLoading ? (
@@ -152,10 +131,9 @@ export default function Models() {
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-12 pl-4">#</TableHead>
-                    <TableHead>Model</TableHead>
-                    <TableHead>Provider</TableHead>
-                    <TableHead>Version</TableHead>
-                    <TableHead>Precision</TableHead>
+                    <TableHead>Model Name</TableHead>
+                    <TableHead>Size</TableHead>
+                    <TableHead>Notes</TableHead>
                     <TableHead className="text-right pr-4">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -164,9 +142,12 @@ export default function Models() {
                     <TableRow key={model.id} className="hover:bg-muted/40">
                       <TableCell className="pl-4 text-muted-foreground text-xs">{model.id}</TableCell>
                       <TableCell className="font-medium">{model.modelName}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{model.provider}</TableCell>
-                      <TableCell className="text-sm font-mono">{model.version}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{model.precisionParam || "—"}</TableCell>
+                      <TableCell>
+                        <span className="inline-block bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
+                          {model.modelSize}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{model.notes || "—"}</TableCell>
                       <TableCell className="text-right pr-4">
                         <Button
                           variant="ghost"
@@ -182,7 +163,7 @@ export default function Models() {
                   ))}
                   {(!models || models.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">
+                      <TableCell colSpan={5} className="text-center py-16 text-sm text-muted-foreground">
                         No models registered yet. Add your first model.
                       </TableCell>
                     </TableRow>

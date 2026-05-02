@@ -11,16 +11,19 @@ import {
 
 const router: IRouter = Router();
 
-router.get("/models", async (_req, res): Promise<void> => {
-  const models = await db.select().from(modelsTable).orderBy(modelsTable.createdAt);
-  res.json(models.map((m) => ({
+function formatModel(m: typeof modelsTable.$inferSelect) {
+  return {
     id: m.id,
     modelName: m.modelName,
-    provider: m.provider,
-    version: m.version,
-    precisionParam: m.precisionParam ?? null,
+    modelSize: m.modelSize,
+    notes: m.notes ?? null,
     createdAt: m.createdAt.toISOString(),
-  })));
+  };
+}
+
+router.get("/models", async (_req, res): Promise<void> => {
+  const models = await db.select().from(modelsTable).orderBy(modelsTable.createdAt);
+  res.json(models.map(formatModel));
 });
 
 router.post("/models", async (req, res): Promise<void> => {
@@ -31,18 +34,10 @@ router.post("/models", async (req, res): Promise<void> => {
   }
   const [model] = await db.insert(modelsTable).values({
     modelName: parsed.data.modelName,
-    provider: parsed.data.provider,
-    version: parsed.data.version,
-    precisionParam: parsed.data.precisionParam ?? null,
+    modelSize: parsed.data.modelSize,
+    notes: parsed.data.notes ?? null,
   }).returning();
-  res.status(201).json({
-    id: model.id,
-    modelName: model.modelName,
-    provider: model.provider,
-    version: model.version,
-    precisionParam: model.precisionParam ?? null,
-    createdAt: model.createdAt.toISOString(),
-  });
+  res.status(201).json(formatModel(model));
 });
 
 router.get("/models/:id", async (req, res): Promise<void> => {
@@ -56,14 +51,7 @@ router.get("/models/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Model not found" });
     return;
   }
-  res.json({
-    id: model.id,
-    modelName: model.modelName,
-    provider: model.provider,
-    version: model.version,
-    precisionParam: model.precisionParam ?? null,
-    createdAt: model.createdAt.toISOString(),
-  });
+  res.json(formatModel(model));
 });
 
 router.patch("/models/:id", async (req, res): Promise<void> => {
@@ -79,23 +67,15 @@ router.patch("/models/:id", async (req, res): Promise<void> => {
   }
   const updates: Record<string, unknown> = {};
   if (parsed.data.modelName != null) updates.modelName = parsed.data.modelName;
-  if (parsed.data.provider != null) updates.provider = parsed.data.provider;
-  if (parsed.data.version != null) updates.version = parsed.data.version;
-  if ("precisionParam" in parsed.data) updates.precisionParam = parsed.data.precisionParam ?? null;
+  if (parsed.data.modelSize != null) updates.modelSize = parsed.data.modelSize;
+  if ("notes" in parsed.data) updates.notes = parsed.data.notes ?? null;
 
   const [model] = await db.update(modelsTable).set(updates).where(eq(modelsTable.id, params.data.id)).returning();
   if (!model) {
     res.status(404).json({ error: "Model not found" });
     return;
   }
-  res.json({
-    id: model.id,
-    modelName: model.modelName,
-    provider: model.provider,
-    version: model.version,
-    precisionParam: model.precisionParam ?? null,
-    createdAt: model.createdAt.toISOString(),
-  });
+  res.json(formatModel(model));
 });
 
 router.delete("/models/:id", async (req, res): Promise<void> => {

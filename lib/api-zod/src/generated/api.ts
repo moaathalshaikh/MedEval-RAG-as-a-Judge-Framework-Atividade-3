@@ -21,9 +21,8 @@ export const HealthCheckResponse = zod.object({
 export const ListModelsResponseItem = zod.object({
   id: zod.number(),
   modelName: zod.string(),
-  provider: zod.enum(["OpenAI", "DeepSeek", "Claude"]),
-  version: zod.string(),
-  precisionParam: zod.string().nullish(),
+  modelSize: zod.string(),
+  notes: zod.string().nullish(),
   createdAt: zod.string(),
 });
 export const ListModelsResponse = zod.array(ListModelsResponseItem);
@@ -33,9 +32,8 @@ export const ListModelsResponse = zod.array(ListModelsResponseItem);
  */
 export const CreateModelBody = zod.object({
   modelName: zod.string(),
-  provider: zod.enum(["OpenAI", "DeepSeek", "Claude"]),
-  version: zod.string(),
-  precisionParam: zod.string().nullish(),
+  modelSize: zod.string(),
+  notes: zod.string().nullish(),
 });
 
 /**
@@ -48,9 +46,8 @@ export const GetModelParams = zod.object({
 export const GetModelResponse = zod.object({
   id: zod.number(),
   modelName: zod.string(),
-  provider: zod.enum(["OpenAI", "DeepSeek", "Claude"]),
-  version: zod.string(),
-  precisionParam: zod.string().nullish(),
+  modelSize: zod.string(),
+  notes: zod.string().nullish(),
   createdAt: zod.string(),
 });
 
@@ -63,24 +60,15 @@ export const UpdateModelParams = zod.object({
 
 export const UpdateModelBody = zod.object({
   modelName: zod.string().nullish(),
-  provider: zod
-    .union([
-      zod.literal("OpenAI"),
-      zod.literal("DeepSeek"),
-      zod.literal("Claude"),
-      zod.literal(null),
-    ])
-    .nullish(),
-  version: zod.string().nullish(),
-  precisionParam: zod.string().nullish(),
+  modelSize: zod.string().nullish(),
+  notes: zod.string().nullish(),
 });
 
 export const UpdateModelResponse = zod.object({
   id: zod.number(),
   modelName: zod.string(),
-  provider: zod.enum(["OpenAI", "DeepSeek", "Claude"]),
-  version: zod.string(),
-  precisionParam: zod.string().nullish(),
+  modelSize: zod.string(),
+  notes: zod.string().nullish(),
   createdAt: zod.string(),
 });
 

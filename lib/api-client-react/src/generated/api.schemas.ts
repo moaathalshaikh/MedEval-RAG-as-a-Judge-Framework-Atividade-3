@@ -13,63 +13,29 @@ export interface ErrorResponse {
   error: string;
 }
 
-export type ModelProvider = (typeof ModelProvider)[keyof typeof ModelProvider];
-
-export const ModelProvider = {
-  OpenAI: "OpenAI",
-  DeepSeek: "DeepSeek",
-  Claude: "Claude",
-} as const;
-
 export interface Model {
   id: number;
   modelName: string;
-  provider: ModelProvider;
-  version: string;
+  modelSize: string;
   /** @nullable */
-  precisionParam?: string | null;
+  notes?: string | null;
   createdAt: string;
 }
 
-export type CreateModelBodyProvider =
-  (typeof CreateModelBodyProvider)[keyof typeof CreateModelBodyProvider];
-
-export const CreateModelBodyProvider = {
-  OpenAI: "OpenAI",
-  DeepSeek: "DeepSeek",
-  Claude: "Claude",
-} as const;
-
 export interface CreateModelBody {
   modelName: string;
-  provider: CreateModelBodyProvider;
-  version: string;
+  modelSize: string;
   /** @nullable */
-  precisionParam?: string | null;
+  notes?: string | null;
 }
-
-/**
- * @nullable
- */
-export type UpdateModelBodyProvider =
-  | (typeof UpdateModelBodyProvider)[keyof typeof UpdateModelBodyProvider]
-  | null;
-
-export const UpdateModelBodyProvider = {
-  OpenAI: "OpenAI",
-  DeepSeek: "DeepSeek",
-  Claude: "Claude",
-} as const;
 
 export interface UpdateModelBody {
   /** @nullable */
   modelName?: string | null;
   /** @nullable */
-  provider?: UpdateModelBodyProvider;
+  modelSize?: string | null;
   /** @nullable */
-  version?: string | null;
-  /** @nullable */
-  precisionParam?: string | null;
+  notes?: string | null;
 }
 
 export type DatasetDomain = (typeof DatasetDomain)[keyof typeof DatasetDomain];

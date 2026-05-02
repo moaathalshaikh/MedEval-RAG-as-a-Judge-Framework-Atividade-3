@@ -588,20 +588,16 @@ components:
           type: integer
         modelName:
           type: string
-        provider:
+        modelSize:
           type: string
-          enum: [OpenAI, DeepSeek, Claude]
-        version:
-          type: string
-        precisionParam:
+        notes:
           type: ["string", "null"]
         createdAt:
           type: string
       required:
         - id
         - modelName
-        - provider
-        - version
+        - modelSize
         - createdAt
 
     CreateModelBody:
@@ -609,29 +605,22 @@ components:
       properties:
         modelName:
           type: string
-        provider:
+        modelSize:
           type: string
-          enum: [OpenAI, DeepSeek, Claude]
-        version:
-          type: string
-        precisionParam:
+        notes:
           type: ["string", "null"]
       required:
         - modelName
-        - provider
-        - version
+        - modelSize
 
     UpdateModelBody:
       type: object
       properties:
         modelName:
           type: ["string", "null"]
-        provider:
+        modelSize:
           type: ["string", "null"]
-          enum: [OpenAI, DeepSeek, Claude, null]
-        version:
-          type: ["string", "null"]
-        precisionParam:
+        notes:
           type: ["string", "null"]
 
     Dataset:

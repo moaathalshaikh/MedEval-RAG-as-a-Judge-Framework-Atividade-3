@@ -5,9 +5,8 @@ import { z } from "zod/v4";
 export const modelsTable = pgTable("models", {
   id: serial("id_model").primaryKey(),
   modelName: text("model_name").notNull(),
-  provider: text("provider").notNull(),
-  version: text("version").notNull(),
-  precisionParam: text("precision_param"),
+  modelSize: text("model_size").notNull(),
+  notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
