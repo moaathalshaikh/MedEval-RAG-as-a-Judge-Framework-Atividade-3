@@ -1,0 +1,335 @@
+**تعليمات تنفيذ النظام وقاعدة البيانات (System + Database Implementation Instructions) — النسخة النهائية الكاملة**
+
+قم ببناء نظام متكامل لتقييم نماذج الذكاء الاصطناعي باستخدام مفهوم **(LLM-as-a-Judge)**، مع فصل واضح بين طبقة التطبيق (Application Layer) وقاعدة البيانات (Database Layer)، وتنفيذ جميع متطلبات المشروع الأكاديمية والتقنية كما يلي:
+
+---
+
+# 1) الهيكلية العامة للنظام (System Architecture)
+
+* تصميم النظام وفق مبدأ الفصل بين:
+
+  * الواجهة الخلفية **(Backend / Application Layer)**
+  * قاعدة البيانات **(Database Layer - PostgreSQL)**
+
+* التواصل يتم عبر **(REST API)**.
+
+* يجب أن يكون النظام:
+
+  * قابل للتوسعة **(Scalable)**
+  * قابل للصيانة **(Maintainable)**
+  * منظم بشكل طبقي:
+
+    * Data Layer
+    * Business Logic
+    * API Layer
+
+---
+
+# 2) قاعدة البيانات (Database - PostgreSQL)
+
+* استخدام **(PostgreSQL)**.
+* جميع أسماء الجداول والأعمدة باللغة الإنجليزية.
+
+## الجداول المطلوبة:
+
+### 1. models
+
+* id_model (PK)
+* model_name
+* provider (OpenAI / DeepSeek / Claude)
+* version
+* precision_param
+
+---
+
+### 2. datasets
+
+* id_dataset (PK)
+* dataset_name
+* domain (Medical / Legal)
+
+---
+
+### 3. questions
+
+* id_question (PK)
+* id_dataset (FK)
+* question_text
+* gold_answer
+* question_type (MCQ / OPEN_ENDED)
+* metadata (JSONB)
+
+📌 يجب استخدام **(JSONB)** لتخزين:
+
+* خيارات MCQ
+* must_have / nice_to_have
+* أي بيانات إضافية
+
+---
+
+### 4. model_responses
+
+* id_response (PK)
+* id_question (FK)
+* id_model (FK)
+* response_text
+* inference_time_ms
+* created_at (timestamp)
+
+---
+
+### 5. judge_evaluations
+
+* id_evaluation (PK)
+* id_response (FK)
+* judge_model_id (FK)
+* score (INTEGER 1–5)
+* reasoning (Chain-of-Thought - REQUIRED)
+* evaluated_at (timestamp)
+
+---
+
+# 3) دعم التتبع الكامل (Traceability)
+
+يجب ضمان تتبع كامل لكل عملية:
+
+Question → Model Response → Judge Evaluation
+
+مع تسجيل:
+
+* اسم النموذج
+* وقت التوليد
+* وقت التقييم
+* التفسير (reasoning)
+
+---
+
+# 4) طبقة التطبيق (Application Layer)
+
+استخدام:
+
+* **(FastAPI)** أو **(Node.js / Express)**
+
+## الوظائف الأساسية:
+
+### 1. إدخال البيانات (Data Ingestion)
+
+* رفع ملفات **(CSV / JSONL)**
+* تحويلها إلى:
+
+  * MCQ
+  * Open-ended
+* تخزينها في **questions**
+
+---
+
+### 2. تشغيل النماذج (Inference Pipeline)
+
+* إرسال الأسئلة للنماذج
+* تخزين النتائج في **model_responses**
+
+---
+
+### 3. تنفيذ القاضي (LLM-as-a-Judge Pipeline)
+
+#### المدخلات:
+
+* question
+* gold_answer
+* model_response
+
+#### المخرجات (إلزامي):
+
+* score (1–5)
+* reasoning (نص تفسيري كامل)
+
+📌 يجب استخراج النتيجة تلقائيًا (Parsing)
+
+---
+
+# 5) تعريف Rubric (معايير التقييم) — إلزامي
+
+يجب تضمين Rubric صريح داخل النظام:
+
+## مثال موحد:
+
+* 1 → خطأ خطير / إجابة غير صحيحة
+* 2 → إجابة ضعيفة أو ناقصة
+* 3 → إجابة صحيحة جزئيًا
+* 4 → إجابة جيدة وقريبة من النموذج المثالي
+* 5 → إجابة ممتازة مطابقة أو متفوقة
+
+📌 يجب أن:
+
+* يُرسل هذا الـ Rubric داخل prompt القاضي
+* يُستخدم فعليًا في التقييم
+
+---
+
+# 6) دعم نوعين من الأسئلة
+
+## 🟡 Multiple Choice (MCQ)
+
+* التقييم:
+
+  * صحيح → 5
+  * خطأ → 1
+
+---
+
+## 🔵 Open-ended
+
+* التقييم يعتمد على:
+
+  * rubric
+  * must_have
+  * nice_to_have
+
+---
+
+# 7) تكامل واجهات النماذج (Model API Integration)
+
+إنشاء **(Settings Panel)** يسمح بـ:
+
+* إدخال API Keys لـ:
+
+  * OpenAI
+  * DeepSeek
+  * Claude
+
+* التخزين:
+
+  * Environment Variables أو Secrets Manager
+
+* إنشاء طبقة موحدة:
+
+  * **(Unified LLM Interface)**
+
+📌 بحيث يتم استدعاء أي نموذج بنفس الشكل
+
+---
+
+# 8) واجهات API (Endpoints)
+
+* POST /upload-dataset
+* POST /generate-responses
+* POST /run-judge
+* GET /results
+* GET /analytics
+
+---
+
+# 9) التحليل (Analytics + SQL)
+
+## مطلوب:
+
+### 1. استعلامات SQL:
+
+* متوسط التقييمات
+* عدد التقييمات
+* مقارنة بين النماذج
+
+---
+
+### 2. تحليل إحصائي:
+
+تنفيذ:
+
+* **(Spearman Correlation)**
+
+بين:
+
+* تقييم القاضي
+* الجواب الصحيح
+
+---
+
+### 3. التنفيذ باستخدام Python:
+
+* pandas
+* scipy
+
+---
+
+# 10) النسخ الاحتياطي والاسترجاع (Backup & Restore)
+
+## إلزامي:
+
+### Backup:
+
+* pg_dump
+
+### Restore:
+
+* psql
+
+📌 يجب توفير:
+
+* ملف .sql
+* تعليمات واضحة للتشغيل
+
+---
+
+# 11) متطلبات التوثيق (Documentation)
+
+يجب إنشاء:
+
+## 1. ملف PDF:
+
+* شرح النظام
+* شرح Rubric
+* أمثلة Queries
+* طريقة restore
+
+---
+
+## 2. GitHub:
+
+* الكود
+* prompts
+* database dump
+
+---
+
+## 3. فيديو:
+
+* شرح النظام
+* عرض النتائج
+* تحليل الأخطاء
+
+---
+
+# 12) متطلبات الجودة (Quality Requirements)
+
+* كود modular
+* تنظيم واضح
+* فصل المسؤوليات
+* قابلية إعادة التشغيل (Reproducibility)
+
+---
+
+# 13) الهدف النهائي للنظام
+
+يجب أن يكون النظام قادرًا على:
+
+* إدارة datasets
+* تشغيل نماذج متعددة
+* تقييم الإجابات باستخدام AI
+* تخزين reasoning
+* تحليل النتائج إحصائيًا
+* قياس مدى توافق AI مع الإنسان
+
+---
+
+# 14) ملاحظة حاسمة
+
+لا يكفي تنفيذ النظام فقط، بل يجب:
+
+* تحليل أخطاء القاضي
+* تفسير النتائج
+* مناقشة حالات الفشل
+
+---
+
+**الناتج المتوقع:**
+نظام احترافي يحاكي بيئة إنتاج حقيقية، مع تقييم دقيق، تخزين كامل، وتحليل علمي للنتائج.
