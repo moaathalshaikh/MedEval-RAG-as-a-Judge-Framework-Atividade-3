@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "LLM Judge — AI Evaluation System"
+version = "1.0.0"
+id = "artifacts/llm-judge"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20003
+
+[services.development]
+run = "pnpm --filter @workspace/llm-judge run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/llm-judge", "run", "build" ]
+publicDir = "artifacts/llm-judge/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20003"
+BASE_PATH = "/"

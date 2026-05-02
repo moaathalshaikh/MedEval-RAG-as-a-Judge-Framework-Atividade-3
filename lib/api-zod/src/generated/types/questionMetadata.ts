@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-}
+/**
+ * JSONB: MCQ choices, must_have, nice_to_have, etc.
+ */
+export type QuestionMetadata = { [key: string]: unknown };

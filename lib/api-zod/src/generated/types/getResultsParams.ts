@@ -6,6 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
-}
+export type GetResultsParams = {
+  /**
+   * @nullable
+   */
+  datasetId?: number | null;
+  /**
+   * @nullable
+   */
+  modelId?: number | null;
+};

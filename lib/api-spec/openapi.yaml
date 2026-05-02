@@ -3,13 +3,28 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: LLM-as-a-Judge AI Model Evaluation System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: models
+    description: AI model management
+  - name: datasets
+    description: Dataset management
+  - name: questions
+    description: Question management
+  - name: responses
+    description: Model response management
+  - name: evaluations
+    description: Judge evaluation management
+  - name: analytics
+    description: Analytics and statistics
+  - name: settings
+    description: API key settings
+
 paths:
   /healthz:
     get:
@@ -24,6 +39,530 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Models
+  /models:
+    get:
+      operationId: listModels
+      tags: [models]
+      summary: List all AI models
+      responses:
+        "200":
+          description: List of models
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Model"
+    post:
+      operationId: createModel
+      tags: [models]
+      summary: Register a new AI model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateModelBody"
+      responses:
+        "201":
+          description: Model created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+
+  /models/{id}:
+    get:
+      operationId: getModel
+      tags: [models]
+      summary: Get a model by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Model found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+        "404":
+          description: Model not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateModel
+      tags: [models]
+      summary: Update a model
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateModelBody"
+      responses:
+        "200":
+          description: Model updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+    delete:
+      operationId: deleteModel
+      tags: [models]
+      summary: Delete a model
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Model deleted
+
+  # Datasets
+  /datasets:
+    get:
+      operationId: listDatasets
+      tags: [datasets]
+      summary: List all datasets
+      responses:
+        "200":
+          description: List of datasets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dataset"
+    post:
+      operationId: createDataset
+      tags: [datasets]
+      summary: Create a new dataset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDatasetBody"
+      responses:
+        "201":
+          description: Dataset created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dataset"
+
+  /datasets/{id}:
+    get:
+      operationId: getDataset
+      tags: [datasets]
+      summary: Get a dataset by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dataset found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dataset"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteDataset
+      tags: [datasets]
+      summary: Delete a dataset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Dataset deleted
+
+  /datasets/upload:
+    post:
+      operationId: uploadDataset
+      tags: [datasets]
+      summary: Upload a CSV/JSONL file to create questions in a dataset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadDatasetBody"
+      responses:
+        "200":
+          description: Upload result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadDatasetResponse"
+
+  # Questions
+  /questions:
+    get:
+      operationId: listQuestions
+      tags: [questions]
+      summary: List questions, optionally filtered by dataset
+      parameters:
+        - name: datasetId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: questionType
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+            enum: ["MCQ", "OPEN_ENDED", null]
+      responses:
+        "200":
+          description: List of questions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Question"
+    post:
+      operationId: createQuestion
+      tags: [questions]
+      summary: Create a new question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuestionBody"
+      responses:
+        "201":
+          description: Question created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+
+  /questions/{id}:
+    get:
+      operationId: getQuestion
+      tags: [questions]
+      summary: Get a question by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Question found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Question"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteQuestion
+      tags: [questions]
+      summary: Delete a question
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Question deleted
+
+  # Model Responses
+  /responses:
+    get:
+      operationId: listResponses
+      tags: [responses]
+      summary: List model responses, optionally filtered
+      parameters:
+        - name: questionId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: modelId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of responses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelResponse"
+
+  /responses/generate:
+    post:
+      operationId: generateResponses
+      tags: [responses]
+      summary: Run inference — send questions to a model and store responses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateResponsesBody"
+      responses:
+        "200":
+          description: Generation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateResponsesResult"
+
+  /responses/{id}:
+    get:
+      operationId: getResponse
+      tags: [responses]
+      summary: Get a single model response by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Response found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Evaluations
+  /evaluations:
+    get:
+      operationId: listEvaluations
+      tags: [evaluations]
+      summary: List judge evaluations, optionally filtered
+      parameters:
+        - name: responseId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: judgeModelId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of evaluations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JudgeEvaluation"
+
+  /evaluations/run:
+    post:
+      operationId: runJudge
+      tags: [evaluations]
+      summary: Run LLM-as-a-Judge pipeline on responses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunJudgeBody"
+      responses:
+        "200":
+          description: Judge run result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunJudgeResult"
+
+  /evaluations/{id}:
+    get:
+      operationId: getEvaluation
+      tags: [evaluations]
+      summary: Get a single evaluation by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Evaluation found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JudgeEvaluation"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Analytics
+  /analytics/summary:
+    get:
+      operationId: getAnalyticsSummary
+      tags: [analytics]
+      summary: Get overall system summary counts and averages
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsSummary"
+
+  /analytics/model-comparison:
+    get:
+      operationId: getModelComparison
+      tags: [analytics]
+      summary: Compare average scores across models
+      responses:
+        "200":
+          description: Model comparison data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelComparisonRow"
+
+  /analytics/score-distribution:
+    get:
+      operationId: getScoreDistribution
+      tags: [analytics]
+      summary: Get score distribution (count per score 1-5) per model
+      responses:
+        "200":
+          description: Score distribution
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ScoreDistributionRow"
+
+  /analytics/results:
+    get:
+      operationId: getResults
+      tags: [analytics]
+      summary: Get full traceability results (question → response → evaluation)
+      parameters:
+        - name: datasetId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+        - name: modelId
+          in: query
+          required: false
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Full results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ResultRow"
+
+  /analytics/spearman:
+    get:
+      operationId: getSpearmanCorrelation
+      tags: [analytics]
+      summary: Get Spearman correlation between judge scores and gold answers (MCQ accuracy)
+      responses:
+        "200":
+          description: Correlation data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpearmanResult"
+
+  # Settings
+  /settings/api-keys:
+    get:
+      operationId: getApiKeyStatus
+      tags: [settings]
+      summary: Get API key configuration status (masked)
+      responses:
+        "200":
+          description: API key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyStatus"
+    post:
+      operationId: saveApiKeys
+      tags: [settings]
+      summary: Save API keys for LLM providers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveApiKeysBody"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiKeyStatus"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +573,456 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    Model:
+      type: object
+      properties:
+        id:
+          type: integer
+        modelName:
+          type: string
+        provider:
+          type: string
+          enum: [OpenAI, DeepSeek, Claude]
+        version:
+          type: string
+        precisionParam:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+      required:
+        - id
+        - modelName
+        - provider
+        - version
+        - createdAt
+
+    CreateModelBody:
+      type: object
+      properties:
+        modelName:
+          type: string
+        provider:
+          type: string
+          enum: [OpenAI, DeepSeek, Claude]
+        version:
+          type: string
+        precisionParam:
+          type: ["string", "null"]
+      required:
+        - modelName
+        - provider
+        - version
+
+    UpdateModelBody:
+      type: object
+      properties:
+        modelName:
+          type: ["string", "null"]
+        provider:
+          type: ["string", "null"]
+          enum: [OpenAI, DeepSeek, Claude, null]
+        version:
+          type: ["string", "null"]
+        precisionParam:
+          type: ["string", "null"]
+
+    Dataset:
+      type: object
+      properties:
+        id:
+          type: integer
+        datasetName:
+          type: string
+        domain:
+          type: string
+          enum: [Medical, Legal, General]
+        questionCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - datasetName
+        - domain
+        - questionCount
+        - createdAt
+
+    CreateDatasetBody:
+      type: object
+      properties:
+        datasetName:
+          type: string
+        domain:
+          type: string
+          enum: [Medical, Legal, General]
+      required:
+        - datasetName
+        - domain
+
+    UploadDatasetBody:
+      type: object
+      properties:
+        datasetId:
+          type: integer
+        content:
+          type: string
+          description: Raw CSV or JSONL content as a string
+        format:
+          type: string
+          enum: [csv, jsonl]
+      required:
+        - datasetId
+        - content
+        - format
+
+    UploadDatasetResponse:
+      type: object
+      properties:
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+        - imported
+        - skipped
+        - errors
+
+    Question:
+      type: object
+      properties:
+        id:
+          type: integer
+        datasetId:
+          type: integer
+        questionText:
+          type: string
+        goldAnswer:
+          type: string
+        questionType:
+          type: string
+          enum: [MCQ, OPEN_ENDED]
+        metadata:
+          type: object
+          description: "JSONB: MCQ choices, must_have, nice_to_have, etc."
+        createdAt:
+          type: string
+      required:
+        - id
+        - datasetId
+        - questionText
+        - goldAnswer
+        - questionType
+        - createdAt
+
+    CreateQuestionBody:
+      type: object
+      properties:
+        datasetId:
+          type: integer
+        questionText:
+          type: string
+        goldAnswer:
+          type: string
+        questionType:
+          type: string
+          enum: [MCQ, OPEN_ENDED]
+        metadata:
+          type: object
+      required:
+        - datasetId
+        - questionText
+        - goldAnswer
+        - questionType
+
+    ModelResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        questionId:
+          type: integer
+        modelId:
+          type: integer
+        responseText:
+          type: string
+        inferenceTimeMs:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+        questionText:
+          type: ["string", "null"]
+        modelName:
+          type: ["string", "null"]
+        goldAnswer:
+          type: ["string", "null"]
+        questionType:
+          type: ["string", "null"]
+      required:
+        - id
+        - questionId
+        - modelId
+        - responseText
+        - createdAt
+
+    GenerateResponsesBody:
+      type: object
+      properties:
+        modelId:
+          type: integer
+        questionIds:
+          type: array
+          items:
+            type: integer
+          description: List of question IDs to generate responses for
+        datasetId:
+          type: ["integer", "null"]
+          description: Alternatively, generate for all questions in a dataset
+      required:
+        - modelId
+
+    GenerateResponsesResult:
+      type: object
+      properties:
+        generated:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+        - generated
+        - skipped
+        - errors
+
+    JudgeEvaluation:
+      type: object
+      properties:
+        id:
+          type: integer
+        responseId:
+          type: integer
+        judgeModelId:
+          type: integer
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+        reasoning:
+          type: string
+        evaluatedAt:
+          type: string
+        questionText:
+          type: ["string", "null"]
+        responseText:
+          type: ["string", "null"]
+        modelName:
+          type: ["string", "null"]
+        judgeModelName:
+          type: ["string", "null"]
+      required:
+        - id
+        - responseId
+        - judgeModelId
+        - score
+        - reasoning
+        - evaluatedAt
+
+    RunJudgeBody:
+      type: object
+      properties:
+        judgeModelId:
+          type: integer
+        responseIds:
+          type: array
+          items:
+            type: integer
+          description: Specific response IDs to evaluate
+        datasetId:
+          type: ["integer", "null"]
+          description: Evaluate all responses for a dataset
+        modelId:
+          type: ["integer", "null"]
+          description: Filter by model
+      required:
+        - judgeModelId
+
+    RunJudgeResult:
+      type: object
+      properties:
+        evaluated:
+          type: integer
+        skipped:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+      required:
+        - evaluated
+        - skipped
+        - errors
+
+    AnalyticsSummary:
+      type: object
+      properties:
+        totalModels:
+          type: integer
+        totalDatasets:
+          type: integer
+        totalQuestions:
+          type: integer
+        totalResponses:
+          type: integer
+        totalEvaluations:
+          type: integer
+        averageScore:
+          type: ["number", "null"]
+        mcqCount:
+          type: integer
+        openEndedCount:
+          type: integer
+      required:
+        - totalModels
+        - totalDatasets
+        - totalQuestions
+        - totalResponses
+        - totalEvaluations
+        - mcqCount
+        - openEndedCount
+
+    ModelComparisonRow:
+      type: object
+      properties:
+        modelId:
+          type: integer
+        modelName:
+          type: string
+        provider:
+          type: string
+        avgScore:
+          type: ["number", "null"]
+        totalEvaluations:
+          type: integer
+        totalResponses:
+          type: integer
+        avgInferenceMs:
+          type: ["number", "null"]
+      required:
+        - modelId
+        - modelName
+        - provider
+        - totalEvaluations
+        - totalResponses
+
+    ScoreDistributionRow:
+      type: object
+      properties:
+        modelId:
+          type: integer
+        modelName:
+          type: string
+        score:
+          type: integer
+        count:
+          type: integer
+      required:
+        - modelId
+        - modelName
+        - score
+        - count
+
+    ResultRow:
+      type: object
+      properties:
+        questionId:
+          type: integer
+        questionText:
+          type: string
+        goldAnswer:
+          type: string
+        questionType:
+          type: string
+        datasetName:
+          type: string
+        responseId:
+          type: integer
+        modelName:
+          type: string
+        responseText:
+          type: string
+        inferenceTimeMs:
+          type: ["integer", "null"]
+        evaluationId:
+          type: ["integer", "null"]
+        score:
+          type: ["integer", "null"]
+        reasoning:
+          type: ["string", "null"]
+        judgeModelName:
+          type: ["string", "null"]
+        evaluatedAt:
+          type: ["string", "null"]
+      required:
+        - questionId
+        - questionText
+        - goldAnswer
+        - questionType
+        - datasetName
+        - responseId
+        - modelName
+        - responseText
+
+    SpearmanResult:
+      type: object
+      properties:
+        correlation:
+          type: ["number", "null"]
+        pValue:
+          type: ["number", "null"]
+        sampleSize:
+          type: integer
+        interpretation:
+          type: string
+        mcqAccuracy:
+          type: ["number", "null"]
+      required:
+        - sampleSize
+        - interpretation
+
+    ApiKeyStatus:
+      type: object
+      properties:
+        openai:
+          type: boolean
+        deepseek:
+          type: boolean
+        claude:
+          type: boolean
+      required:
+        - openai
+        - deepseek
+        - claude
+
+    SaveApiKeysBody:
+      type: object
+      properties:
+        openaiKey:
+          type: ["string", "null"]
+        deepseekKey:
+          type: ["string", "null"]
+        claudeKey:
+          type: ["string", "null"]
