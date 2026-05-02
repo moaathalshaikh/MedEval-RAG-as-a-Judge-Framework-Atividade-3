@@ -1,4 +1,4 @@
-import { useListDatasets, useCreateDataset, useDeleteDataset, getListDatasetsQueryKey, CreateDatasetBodyDomain } from "@workspace/api-client-react";
+import { useListDatasets, useCreateDataset, useDeleteDataset, getListDatasetsQueryKey, CreateDatasetBodyDomain, CreateDatasetBodyDatasetType } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,6 +18,7 @@ import { motion } from "framer-motion";
 const datasetSchema = z.object({
   datasetName: z.string().min(1, "Dataset name is required"),
   domain: z.nativeEnum(CreateDatasetBodyDomain),
+  datasetType: z.nativeEnum(CreateDatasetBodyDatasetType),
 });
 
 type DatasetFormValues = z.infer<typeof datasetSchema>;
@@ -30,7 +31,7 @@ export default function Datasets() {
 
   const form = useForm<DatasetFormValues>({
     resolver: zodResolver(datasetSchema),
-    defaultValues: { datasetName: "", domain: CreateDatasetBodyDomain.Medical },
+    defaultValues: { datasetName: "", domain: CreateDatasetBodyDomain.Medical, datasetType: CreateDatasetBodyDatasetType.OPEN_ENDED },
   });
 
   function onSubmit(data: DatasetFormValues) {
@@ -76,6 +77,27 @@ export default function Datasets() {
                       <FormControl>
                         <Input placeholder="e.g. MedQA Subset" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="datasetType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Dataset Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={CreateDatasetBodyDatasetType.OPEN_ENDED}>Open-ended (JSONL)</SelectItem>
+                          <SelectItem value={CreateDatasetBodyDatasetType.MCQ}>MCQ (CSV)</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -130,9 +152,12 @@ export default function Datasets() {
                       <TableCell className="pl-4 text-muted-foreground text-xs">{dataset.id}</TableCell>
                       <TableCell className="font-medium">{dataset.datasetName}</TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className="text-xs">
-                          {dataset.domain}
-                        </Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="secondary" className="text-xs w-fit">{dataset.domain}</Badge>
+                          <Badge variant="outline" className={`text-xs w-fit ${dataset.datasetType === "MCQ" ? "border-blue-300 text-blue-700 bg-blue-50" : "border-green-300 text-green-700 bg-green-50"}`}>
+                            {dataset.datasetType === "MCQ" ? "MCQ" : "Open-ended"}
+                          </Badge>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">{dataset.questionCount}</TableCell>
                       <TableCell className="text-right pr-4">

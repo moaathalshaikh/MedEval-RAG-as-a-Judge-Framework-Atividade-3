@@ -44,6 +44,7 @@ router.get("/datasets", async (_req, res): Promise<void> => {
       id: datasetsTable.id,
       datasetName: datasetsTable.datasetName,
       domain: datasetsTable.domain,
+      datasetType: datasetsTable.datasetType,
       createdAt: datasetsTable.createdAt,
       questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)`,
     })
@@ -56,6 +57,7 @@ router.get("/datasets", async (_req, res): Promise<void> => {
     id: r.id,
     datasetName: r.datasetName,
     domain: r.domain,
+    datasetType: r.datasetType,
     questionCount: r.questionCount ?? 0,
     createdAt: r.createdAt.toISOString(),
   })));
@@ -67,21 +69,22 @@ router.post("/datasets", async (req, res): Promise<void> => {
   const [dataset] = await db.insert(datasetsTable).values({
     datasetName: parsed.data.datasetName,
     domain: parsed.data.domain,
+    datasetType: parsed.data.datasetType,
   }).returning();
-  res.status(201).json({ id: dataset.id, datasetName: dataset.datasetName, domain: dataset.domain, questionCount: 0, createdAt: dataset.createdAt.toISOString() });
+  res.status(201).json({ id: dataset.id, datasetName: dataset.datasetName, domain: dataset.domain, datasetType: dataset.datasetType, questionCount: 0, createdAt: dataset.createdAt.toISOString() });
 });
 
 router.get("/datasets/:id", async (req, res): Promise<void> => {
   const params = GetDatasetParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const [row] = await db
-    .select({ id: datasetsTable.id, datasetName: datasetsTable.datasetName, domain: datasetsTable.domain, createdAt: datasetsTable.createdAt, questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)` })
+    .select({ id: datasetsTable.id, datasetName: datasetsTable.datasetName, domain: datasetsTable.domain, datasetType: datasetsTable.datasetType, createdAt: datasetsTable.createdAt, questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)` })
     .from(datasetsTable)
     .leftJoin(questionsTable, eq(questionsTable.datasetId, datasetsTable.id))
     .where(eq(datasetsTable.id, params.data.id))
     .groupBy(datasetsTable.id);
   if (!row) { res.status(404).json({ error: "Dataset not found" }); return; }
-  res.json({ id: row.id, datasetName: row.datasetName, domain: row.domain, questionCount: row.questionCount ?? 0, createdAt: row.createdAt.toISOString() });
+  res.json({ id: row.id, datasetName: row.datasetName, domain: row.domain, datasetType: row.datasetType, questionCount: row.questionCount ?? 0, createdAt: row.createdAt.toISOString() });
 });
 
 router.delete("/datasets/:id", async (req, res): Promise<void> => {

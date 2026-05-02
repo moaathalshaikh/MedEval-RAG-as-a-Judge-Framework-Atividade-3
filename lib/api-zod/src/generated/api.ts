@@ -86,6 +86,7 @@ export const ListDatasetsResponseItem = zod.object({
   id: zod.number(),
   datasetName: zod.string(),
   domain: zod.enum(["Medical", "General"]),
+  datasetType: zod.enum(["OPEN_ENDED", "MCQ"]),
   questionCount: zod.number(),
   createdAt: zod.string(),
 });
@@ -97,6 +98,7 @@ export const ListDatasetsResponse = zod.array(ListDatasetsResponseItem);
 export const CreateDatasetBody = zod.object({
   datasetName: zod.string(),
   domain: zod.enum(["Medical", "General"]),
+  datasetType: zod.enum(["OPEN_ENDED", "MCQ"]),
 });
 
 /**
@@ -110,6 +112,7 @@ export const GetDatasetResponse = zod.object({
   id: zod.number(),
   datasetName: zod.string(),
   domain: zod.enum(["Medical", "General"]),
+  datasetType: zod.enum(["OPEN_ENDED", "MCQ"]),
   questionCount: zod.number(),
   createdAt: zod.string(),
 });

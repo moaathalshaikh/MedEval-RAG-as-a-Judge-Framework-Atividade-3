@@ -45,10 +45,18 @@ export const DatasetDomain = {
   General: "General",
 } as const;
 
+export type DatasetType = (typeof DatasetType)[keyof typeof DatasetType];
+
+export const DatasetType = {
+  OPEN_ENDED: "OPEN_ENDED",
+  MCQ: "MCQ",
+} as const;
+
 export interface Dataset {
   id: number;
   datasetName: string;
   domain: DatasetDomain;
+  datasetType: DatasetType;
   questionCount: number;
   createdAt: string;
 }
@@ -61,9 +69,18 @@ export const CreateDatasetBodyDomain = {
   General: "General",
 } as const;
 
+export type CreateDatasetBodyDatasetType =
+  (typeof CreateDatasetBodyDatasetType)[keyof typeof CreateDatasetBodyDatasetType];
+
+export const CreateDatasetBodyDatasetType = {
+  OPEN_ENDED: "OPEN_ENDED",
+  MCQ: "MCQ",
+} as const;
+
 export interface CreateDatasetBody {
   datasetName: string;
   domain: CreateDatasetBodyDomain;
+  datasetType: CreateDatasetBodyDatasetType;
 }
 
 export type UploadDatasetBodyFormat =

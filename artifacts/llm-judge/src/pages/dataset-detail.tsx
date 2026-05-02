@@ -334,17 +334,24 @@ export default function DatasetDetail() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
             <Upload className="h-4 w-4 text-primary" /> Bulk Upload
+            <Badge variant="outline" className={`ml-1 text-xs ${dataset.datasetType === "MCQ" ? "border-blue-300 text-blue-700 bg-blue-50" : "border-green-300 text-green-700 bg-green-50"}`}>
+              {dataset.datasetType === "MCQ" ? "MCQ" : "Open-ended"}
+            </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="jsonl">
-            <TabsList className="grid grid-cols-2 w-full mb-5">
-              <TabsTrigger value="jsonl" className="gap-1.5 text-xs">
-                <FileJson className="h-3.5 w-3.5" /> Open-ended (.jsonl)
-              </TabsTrigger>
-              <TabsTrigger value="mcq" className="gap-1.5 text-xs">
-                <FileText className="h-3.5 w-3.5" /> MCQ (.csv)
-              </TabsTrigger>
+          <Tabs defaultValue={dataset.datasetType === "MCQ" ? "mcq" : "jsonl"}>
+            <TabsList className={`grid w-full mb-5 ${dataset.datasetType ? "grid-cols-1" : "grid-cols-2"}`}>
+              {dataset.datasetType !== "MCQ" && (
+                <TabsTrigger value="jsonl" className="gap-1.5 text-xs">
+                  <FileJson className="h-3.5 w-3.5" /> Open-ended (.jsonl)
+                </TabsTrigger>
+              )}
+              {dataset.datasetType !== "OPEN_ENDED" && (
+                <TabsTrigger value="mcq" className="gap-1.5 text-xs">
+                  <FileText className="h-3.5 w-3.5" /> MCQ (.csv)
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* ── JSONL tab ─────────────────────────────────────────────── */}

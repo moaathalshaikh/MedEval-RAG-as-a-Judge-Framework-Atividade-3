@@ -6,6 +6,7 @@ export const datasetsTable = pgTable("datasets", {
   id: serial("id_dataset").primaryKey(),
   datasetName: text("dataset_name").notNull(),
   domain: text("domain").notNull(),
+  datasetType: text("dataset_type").notNull().default("OPEN_ENDED"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
