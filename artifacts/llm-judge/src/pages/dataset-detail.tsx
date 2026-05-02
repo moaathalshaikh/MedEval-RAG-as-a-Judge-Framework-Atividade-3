@@ -1,7 +1,7 @@
-import { useParams, Link } from "wouter";
+import { useParams, Link, useLocation } from "wouter";
 import {
-  useGetDataset, useListQuestions, useCreateQuestion, useDeleteQuestion, useUploadDataset,
-  getGetDatasetQueryKey, getListQuestionsQueryKey, CreateQuestionBodyQuestionType, UploadDatasetBodyFormat,
+  useGetDataset, useListQuestions, useCreateQuestion, useDeleteQuestion, useUploadDataset, useDeleteDataset,
+  getGetDatasetQueryKey, getListQuestionsQueryKey, getListDatasetsQueryKey, CreateQuestionBodyQuestionType, UploadDatasetBodyFormat,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye, AlertTriangle } from "lucide-react";
+import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye, AlertTriangle, DatabaseZap } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -20,7 +20,7 @@ import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 
 const questionSchema = z.object({
@@ -117,6 +117,7 @@ export default function DatasetDetail() {
   const datasetId = parseInt(id || "0");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
 
   const { data: dataset, isLoading: isDatasetLoading } = useGetDataset(datasetId, {
     query: { enabled: !!datasetId, queryKey: getGetDatasetQueryKey(datasetId) }
@@ -127,11 +128,13 @@ export default function DatasetDetail() {
 
   const createQuestion = useCreateQuestion();
   const deleteQuestion = useDeleteQuestion();
+  const deleteDataset = useDeleteDataset();
   const uploadDataset = useUploadDataset();
 
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; duplicates?: number; errors: string[] } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
   const [viewQ, setViewQ] = useState<{ questionText: string; goldAnswer: string; questionType: string } | null>(null);
+  const [showDeleteDataset, setShowDeleteDataset] = useState(false);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
@@ -270,6 +273,16 @@ export default function DatasetDetail() {
           <h1 className="text-2xl font-bold text-foreground">{dataset.datasetName}</h1>
           <Badge variant="secondary">{dataset.domain}</Badge>
           <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">{dataset.questionCount} questions</Badge>
+          <div className="ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-400"
+              onClick={() => setShowDeleteDataset(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" /> Delete Dataset
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -551,6 +564,43 @@ export default function DatasetDetail() {
           )}
         </CardContent>
       </Card>
+      {/* Full question view dialog */}
+      {/* Delete dataset confirmation dialog */}
+      <Dialog open={showDeleteDataset} onOpenChange={setShowDeleteDataset}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" /> Delete Dataset
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              This will permanently delete <span className="font-semibold text-foreground">"{dataset.datasetName}"</span> and all{" "}
+              <span className="font-semibold text-foreground">{dataset.questionCount} questions</span> inside it. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button variant="outline" onClick={() => setShowDeleteDataset(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteDataset.isPending}
+              onClick={() => {
+                deleteDataset.mutate({ id: datasetId }, {
+                  onSuccess: () => {
+                    queryClient.invalidateQueries({ queryKey: getListDatasetsQueryKey() });
+                    toast({ title: "Dataset deleted", description: `"${dataset.datasetName}" was removed.` });
+                    navigate("/datasets");
+                  },
+                  onError: () => toast({ title: "Delete failed", variant: "destructive" }),
+                });
+              }}
+            >
+              {deleteDataset.isPending ? "Deleting…" : "Yes, delete dataset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Full question view dialog */}
       <Dialog open={!!viewQ} onOpenChange={() => setViewQ(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
