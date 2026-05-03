@@ -70,7 +70,7 @@ function parseHeader(row: string[]) {
  */
 function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
   const rows = parseCSVRows(text);
-  if (rows.length < 2) return { entries: [] };
+  if (rows.length < 2) throw new Error("File appears empty or has only a header row.");
   const header = parseHeader(rows[0]);
 
   const idIdx   = header.findIndex((h) => h === "id");
@@ -78,16 +78,29 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
   const ansIdx  = header.findIndex((h) => h === "answer" || h.includes("response"));
   const timeIdx = header.findIndex((h) => h.includes("time") || h.includes("ms") || h.includes("inference"));
 
+  // Require at least one of: answer, response column
+  if (ansIdx < 0) {
+    throw new Error(
+      `Missing required column "answer" (or "response").\n` +
+      `Columns found: ${header.length > 0 ? header.join(", ") : "(none)"}\n` +
+      `Expected format: id, question, answer, must_have_score`
+    );
+  }
+
   const entries: ImportEntry[] = [];
   for (let i = 1; i < rows.length; i++) {
     const cols = rows[i];
     const externalId   = idIdx  >= 0 ? cols[idIdx]?.trim()  : undefined;
     const questionText = qIdx   >= 0 ? cols[qIdx]?.trim()   : undefined;
-    const responseText = cols[ansIdx >= 0 ? ansIdx : 2]?.trim() ?? "";
+    const responseText = cols[ansIdx]?.trim() ?? "";
     const inferenceTimeMs = timeIdx >= 0 ? (parseFloat(cols[timeIdx]) || null) : null;
     if (!responseText) continue;
     entries.push({ externalId, questionText, modelId, responseText, inferenceTimeMs });
   }
+
+  if (entries.length === 0)
+    throw new Error("No valid rows found — all rows have an empty answer column.");
+
   return { entries };
 }
 
@@ -101,7 +114,7 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
  */
 function parseMCQCSV(text: string, modelId: number): ParsedResult {
   const rows = parseCSVRows(text);
-  if (rows.length < 2) return { entries: [] };
+  if (rows.length < 2) throw new Error("File appears empty or has only a header row.");
   const header = parseHeader(rows[0]);
 
   const qIdx = header.findIndex((h) => h === "question" || h.includes("question"));
@@ -109,14 +122,36 @@ function parseMCQCSV(text: string, modelId: number): ParsedResult {
   const predIdx = header.findIndex((h) => !SKIP.has(h));
   const predColName = predIdx >= 0 ? header[predIdx] : undefined;
 
+  // Require question column
+  if (qIdx < 0) {
+    throw new Error(
+      `Missing required column "question".\n` +
+      `Columns found: ${header.length > 0 ? header.join(", ") : "(none)"}\n` +
+      `Expected format: question, {model}_prediction, correct, score`
+    );
+  }
+
+  // Require a prediction column (any non-reserved column)
+  if (predIdx < 0) {
+    throw new Error(
+      `No prediction column detected.\n` +
+      `Columns found: ${header.join(", ")}\n` +
+      `Expected a column like "{model}_prediction" alongside: question, correct, score`
+    );
+  }
+
   const entries: ImportEntry[] = [];
   for (let i = 1; i < rows.length; i++) {
     const cols = rows[i];
-    const questionText = cols[qIdx >= 0 ? qIdx : 0]?.trim();
-    const prediction   = cols[predIdx >= 0 ? predIdx : 1]?.trim().toUpperCase();
+    const questionText = cols[qIdx]?.trim();
+    const prediction   = cols[predIdx]?.trim().toUpperCase();
     if (!questionText || !prediction) continue;
     entries.push({ questionText, modelId, responseText: prediction });
   }
+
+  if (entries.length === 0)
+    throw new Error("No valid rows found — all rows have empty question or prediction values.");
+
   return { entries, predictionCol: predColName };
 }
 
@@ -161,27 +196,35 @@ export default function ImportResponses() {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !selectedModelId) return;
-    const text = await file.text();
     resetFile();
     setFileName(file.name);
+
+    const allowed = datasetType === "OPEN_ENDED" ? [".csv", ".json"] : [".csv"];
+    const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+    if (!allowed.includes(ext)) {
+      setParseError(`Invalid file type "${ext}". Only ${allowed.join(" or ")} files are accepted.`);
+      e.target.value = "";
+      return;
+    }
+
+    const text = await file.text();
     try {
       if (datasetType === "MCQ") {
         const parsed = parseMCQCSV(text, selectedModelId);
-        if (parsed.entries.length === 0) throw new Error("No records parsed — check column names");
         setParsedResult(parsed);
       } else {
         if (file.name.endsWith(".json")) {
           const parsed = JSON.parse(text);
-          if (!Array.isArray(parsed)) throw new Error("Expected JSON array");
+          if (!Array.isArray(parsed)) throw new Error("Expected a JSON array of response objects.");
+          if (parsed.length === 0) throw new Error("JSON array is empty — no records to import.");
           setParsedResult({ entries: parsed.map((r: ImportEntry) => ({ ...r, modelId: selectedModelId })) });
         } else {
           const parsed = parseOpenEndedCSV(text, selectedModelId);
-          if (parsed.entries.length === 0) throw new Error("No records parsed — check column names");
           setParsedResult(parsed);
         }
       }
     } catch (err) {
-      setParseError(`Parse error: ${String(err)}`);
+      setParseError(String(err).replace(/^Error:\s*/, ""));
     }
     e.target.value = "";
   }
@@ -373,8 +416,12 @@ export default function ImportResponses() {
 
               {parseError && (
                 <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{parseError}</AlertDescription>
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <AlertDescription>
+                    {parseError.split("\n").map((line, i) => (
+                      <p key={i} className={i === 0 ? "font-medium" : "text-xs mt-1 opacity-80 font-mono"}>{line}</p>
+                    ))}
+                  </AlertDescription>
                 </Alert>
               )}
 
@@ -462,32 +509,64 @@ export default function ImportResponses() {
                     </div>
                   </div>
 
-                  {/* All-duplicates notice */}
-                  {result.skipped > 0 && result.imported === 0 && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
-                      <div className="flex items-start gap-3">
-                        <Copy className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-amber-800">
-                            All {result.skipped} {result.skipped === 1 ? "response was" : "responses were"} already imported
-                          </p>
-                          <p className="text-xs text-amber-700 leading-relaxed">
-                            This file has been uploaded before for <span className="font-medium">{selectedModel?.modelName}</span> on this dataset.
-                            Duplicate responses are skipped automatically to keep your data clean.
-                          </p>
+                  {/* All-skipped notice — detect reason */}
+                  {result.skipped > 0 && result.imported === 0 && (() => {
+                    const allDupes = result.errors.every((e: string) => e.startsWith("Duplicate:"));
+                    const noMatch  = result.errors.every((e: string) => e.toLowerCase().includes("not found") || e.toLowerCase().includes("no match"));
+                    if (allDupes) return (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+                        <div className="flex items-start gap-3">
+                          <Copy className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-amber-800">
+                              All {result.skipped} {result.skipped === 1 ? "response was" : "responses were"} already imported
+                            </p>
+                            <p className="text-xs text-amber-700 leading-relaxed">
+                              This file was uploaded before for <span className="font-medium">{selectedModel?.modelName}</span> on this dataset.
+                              Duplicates are skipped automatically to keep data clean.
+                            </p>
+                          </div>
                         </div>
+                        <Button size="sm" variant="outline"
+                          className="w-full gap-2 border-amber-300 text-amber-800 hover:bg-amber-100"
+                          onClick={() => navigate("/results")}
+                        >
+                          View previously imported results
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full gap-2 border-amber-300 text-amber-800 hover:bg-amber-100"
-                        onClick={() => navigate("/results")}
-                      >
-                        View previously imported results
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  )}
+                    );
+                    if (noMatch) return (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-2">
+                        <div className="flex items-start gap-3">
+                          <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-red-800">No questions matched in this dataset</p>
+                            <p className="text-xs text-red-700 leading-relaxed">
+                              None of the {result.skipped} {result.skipped === 1 ? "row" : "rows"} in the file could be linked to a question in <span className="font-medium">{selectedDataset?.datasetName}</span>.
+                              Make sure you selected the correct dataset and that the file format matches.
+                            </p>
+                          </div>
+                        </div>
+                        <Button size="sm" variant="outline"
+                          className="w-full gap-2 border-red-300 text-red-800 hover:bg-red-100"
+                          onClick={downloadTemplate}
+                        >
+                          <Download className="h-3.5 w-3.5" /> Download correct template
+                        </Button>
+                      </div>
+                    );
+                    // Mixed / unknown reason
+                    return (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+                        <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                        <p className="text-xs text-amber-700 leading-relaxed">
+                          All {result.skipped} {result.skipped === 1 ? "row was" : "rows were"} skipped.
+                          Check that the selected model, dataset, and file are all consistent.
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   {/* Partial-duplicates notice */}
                   {result.skipped > 0 && result.imported > 0 && (
