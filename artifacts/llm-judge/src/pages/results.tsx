@@ -3,12 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ScoreBadge } from "@/components/score-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, Filter, Download } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { ChevronRight, Filter, Download, Trash2, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "@/hooks/use-toast";
 
 function escapeCSV(val: unknown): string {
   const s = val == null ? "" : String(val);
@@ -45,6 +48,7 @@ function exportResultsCSV(rows: any[]) {
 export default function Results() {
   const [datasetId, setDatasetId] = useState<string>("");
   const [modelId, setModelId] = useState<string>("");
+  const queryClient = useQueryClient();
 
   const { data: models } = useListModels();
   const { data: datasets } = useListDatasets();
@@ -132,7 +136,11 @@ export default function Results() {
                 </TableHeader>
                 <TableBody>
                   {results?.map((row) => (
-                    <ResultRowComponent key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`} row={row} />
+                    <ResultRowComponent
+                      key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`}
+                      row={row}
+                      onDeleted={() => queryClient.invalidateQueries()}
+                    />
                   ))}
                   {(!results || results.length === 0) && (
                     <TableRow>
@@ -151,8 +159,41 @@ export default function Results() {
   );
 }
 
-function ResultRowComponent({ row }: { row: any }) {
+function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<"response" | "evaluation" | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { toast } = useToast();
+
+  async function deleteResponse() {
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/responses/${row.responseId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error);
+      toast({ title: "Response deleted", description: "The response and its evaluation have been removed." });
+      onDeleted();
+    } catch (e) {
+      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
+    } finally {
+      setIsDeleting(false);
+      setConfirmDialog(null);
+    }
+  }
+
+  async function deleteEvaluation() {
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/evaluations/${row.evaluationId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error);
+      toast({ title: "Evaluation cleared", description: "The score has been removed. You can re-evaluate this response." });
+      onDeleted();
+    } catch (e) {
+      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
+    } finally {
+      setIsDeleting(false);
+      setConfirmDialog(null);
+    }
+  }
 
   return (
     <>
@@ -220,31 +261,58 @@ function ResultRowComponent({ row }: { row: any }) {
                     </div>
                   </div>
 
-                  {/* Right: judge details */}
-                  <div className="lg:col-span-5">
-                    <div className="flex items-center justify-between mb-4">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Evaluation</p>
-                      {row.judgeModelName && (
-                        <Badge variant="secondary" className="text-xs">{row.judgeModelName}</Badge>
+                  {/* Right: judge details + actions */}
+                  <div className="lg:col-span-5 space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Evaluation</p>
+                        {row.judgeModelName && (
+                          <Badge variant="secondary" className="text-xs">{row.judgeModelName}</Badge>
+                        )}
+                      </div>
+
+                      <div className="mb-4">
+                        <ScoreBadge score={row.score} />
+                      </div>
+
+                      {row.reasoning ? (
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Reasoning</p>
+                          <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5 max-h-[200px] overflow-y-auto whitespace-pre-wrap text-muted-foreground">
+                            {row.reasoning}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-28 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+                          Not yet evaluated
+                        </div>
                       )}
                     </div>
 
-                    <div className="mb-4">
-                      <ScoreBadge score={row.score} />
+                    {/* Delete actions */}
+                    <div className="border-t border-border pt-4 space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</p>
+                      {row.evaluationId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
+                          onClick={(e) => { e.stopPropagation(); setConfirmDialog("evaluation"); }}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Clear evaluation score
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:border-red-300"
+                        onClick={(e) => { e.stopPropagation(); setConfirmDialog("response"); }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete response
+                      </Button>
                     </div>
-
-                    {row.reasoning ? (
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Reasoning</p>
-                        <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5 max-h-[240px] overflow-y-auto whitespace-pre-wrap text-muted-foreground">
-                          {row.reasoning}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center h-28 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-                        Not yet evaluated
-                      </div>
-                    )}
                   </div>
                 </div>
               </motion.div>
@@ -252,6 +320,42 @@ function ResultRowComponent({ row }: { row: any }) {
           </TableRow>
         )}
       </AnimatePresence>
+
+      {/* Confirm: delete evaluation */}
+      <Dialog open={confirmDialog === "evaluation"} onOpenChange={(o) => !o && setConfirmDialog(null)}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Clear evaluation score?</DialogTitle>
+            <DialogDescription>
+              This removes the judge score and reasoning for this response. The response itself stays — you can re-evaluate it afterwards.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog(null)} disabled={isDeleting}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700 text-white" onClick={deleteEvaluation} disabled={isDeleting}>
+              {isDeleting ? "Clearing…" : "Clear score"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm: delete response */}
+      <Dialog open={confirmDialog === "response"} onOpenChange={(o) => !o && setConfirmDialog(null)}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Delete this response?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the model response and its evaluation. You can re-import this response later.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog(null)} disabled={isDeleting}>Cancel</Button>
+            <Button variant="destructive" onClick={deleteResponse} disabled={isDeleting}>
+              {isDeleting ? "Deleting…" : "Delete response"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

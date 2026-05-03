@@ -240,6 +240,15 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
   res.json({ evaluated, skipped, errors });
 });
 
+router.delete("/evaluations/:id", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const deleted = await db.delete(judgeEvaluationsTable).where(eq(judgeEvaluationsTable.id, id)).returning();
+  if (deleted.length === 0) { res.status(404).json({ error: "Evaluation not found" }); return; }
+  res.json({ deleted: true });
+});
+
 router.get("/evaluations/:id", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
 

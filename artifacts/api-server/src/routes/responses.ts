@@ -262,6 +262,14 @@ router.post("/responses/import", async (req, res): Promise<void> => {
   res.json({ imported, skipped, errors, suggestedDataset });
 });
 
+router.delete("/responses/:id", async (req, res): Promise<void> => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const deleted = await db.delete(modelResponsesTable).where(eq(modelResponsesTable.id, id)).returning();
+  if (deleted.length === 0) { res.status(404).json({ error: "Response not found" }); return; }
+  res.json({ deleted: true });
+});
+
 router.get("/responses/:id", async (req, res): Promise<void> => {
   const params = GetResponseParams.safeParse(req.params);
   if (!params.success) {
