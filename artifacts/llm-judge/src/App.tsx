@@ -11,6 +11,7 @@ import Models from "@/pages/models";
 import Datasets from "@/pages/datasets";
 import DatasetDetail from "@/pages/dataset-detail";
 import ImportResponses from "@/pages/import-responses";
+import ReferenceAnswers from "@/pages/reference-answers";
 import Evaluate from "@/pages/evaluate";
 import Results from "@/pages/results";
 import Analytics from "@/pages/analytics";
@@ -28,6 +29,7 @@ function Router() {
         <Route path="/datasets" component={Datasets} />
         <Route path="/datasets/:id" component={DatasetDetail} />
         <Route path="/import" component={ImportResponses} />
+        <Route path="/reference-answers" component={ReferenceAnswers} />
         <Route path="/evaluate" component={Evaluate} />
         <Route path="/results" component={Results} />
         <Route path="/analytics" component={Analytics} />

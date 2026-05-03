@@ -10,21 +10,48 @@ import {
   List,
   Stethoscope,
   LogOut,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@workspace/replit-auth-web";
 import { auth, firebaseSignOut } from "@/lib/firebase";
 import { currentUnifiedUser } from "./auth-gate";
 
-const NAV_ITEMS = [
-  { path: "/", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/models", label: "SLM Models", icon: Server },
-  { path: "/datasets", label: "Datasets", icon: Database },
-  { path: "/import", label: "Import Responses", icon: Upload },
-  { path: "/evaluate", label: "Evaluate", icon: Play },
-  { path: "/results", label: "Results", icon: List },
-  { path: "/analytics", label: "Analytics", icon: BarChart2 },
-  { path: "/settings", label: "Settings", icon: Settings },
+type NavGroup = {
+  label: string;
+  items: { path: string; label: string; icon: React.ComponentType<{ className?: string }>; step?: number }[];
+};
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: "Overview",
+    items: [
+      { path: "/", label: "Dashboard", icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: "Setup",
+    items: [
+      { path: "/settings", label: "Settings", icon: Settings },
+      { path: "/models", label: "SLM Models", icon: Server },
+      { path: "/datasets", label: "Datasets", icon: Database },
+    ],
+  },
+  {
+    label: "Evaluation Pipeline",
+    items: [
+      { path: "/import", label: "Import Responses", icon: Upload, step: 1 },
+      { path: "/reference-answers", label: "Reference Answers", icon: Sparkles, step: 2 },
+      { path: "/evaluate", label: "Evaluate", icon: Play, step: 3 },
+    ],
+  },
+  {
+    label: "Analysis",
+    items: [
+      { path: "/results", label: "Results", icon: List },
+      { path: "/analytics", label: "Analytics", icon: BarChart2 },
+    ],
+  },
 ];
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
@@ -34,7 +61,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   async function handleLogout() {
     if (user?.provider === "firebase") {
-      // Sign out from Firebase + clear server session
       await firebaseSignOut();
       await fetch("/api/auth/firebase-logout", { method: "POST", credentials: "include" });
       window.location.reload();
@@ -72,39 +98,60 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Nav */}
-        <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
-            const isActive =
-              location === item.path ||
-              (item.path !== "/" && location.startsWith(item.path));
-            return (
-              <Link key={item.path} href={item.path}>
-                <div
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer",
-                    isActive
-                      ? "bg-accent text-primary font-semibold"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  )}
-                >
-                  <item.icon
-                    className={cn(
-                      "h-4 w-4 shrink-0",
-                      isActive ? "text-primary" : "text-muted-foreground"
-                    )}
-                  />
-                  {item.label}
-                </div>
-              </Link>
-            );
-          })}
+        <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label}>
+              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const isActive =
+                    location === item.path ||
+                    (item.path !== "/" && location.startsWith(item.path));
+                  return (
+                    <Link key={item.path} href={item.path}>
+                      <div
+                        className={cn(
+                          "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer",
+                          isActive
+                            ? "bg-accent text-primary font-semibold"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        {item.step != null ? (
+                          <span
+                            className={cn(
+                              "inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold shrink-0",
+                              isActive
+                                ? "bg-primary text-white"
+                                : "bg-muted-foreground/20 text-muted-foreground"
+                            )}
+                          >
+                            {item.step}
+                          </span>
+                        ) : (
+                          <item.icon
+                            className={cn(
+                              "h-4 w-4 shrink-0",
+                              isActive ? "text-primary" : "text-muted-foreground"
+                            )}
+                          />
+                        )}
+                        {item.label}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         {/* Footer — user card + logout */}
         <div className="p-3 border-t border-border">
           {user ? (
             <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/60 group transition-colors">
-              {/* Avatar */}
               {user.profileImageUrl ? (
                 <img
                   src={user.profileImageUrl}
@@ -116,7 +163,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   {initials}
                 </div>
               )}
-              {/* Name + email */}
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-foreground truncate leading-none mb-0.5">
                   {displayName}
@@ -127,7 +173,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   </p>
                 )}
               </div>
-              {/* Logout button */}
               <button
                 onClick={handleLogout}
                 title="Log out"
