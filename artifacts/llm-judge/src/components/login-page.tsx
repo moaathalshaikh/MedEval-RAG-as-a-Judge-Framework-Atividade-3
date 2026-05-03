@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { signInWithGoogle, signInWithEmail, signUpWithEmail, firebaseSignOut } from "@/lib/firebase";
+import { signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerificationEmail } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Stethoscope, Mail, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Stethoscope, Mail, Eye, EyeOff, AlertCircle, MailCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-type Mode = "choose" | "signin" | "signup";
+type Mode = "choose" | "signin" | "signup" | "verify-email";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -17,12 +17,14 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   function clearForm() {
     setEmail("");
     setPassword("");
     setConfirmPassword("");
     setError(null);
+    setResendSuccess(false);
   }
 
   async function handleGoogleSignIn() {
@@ -50,7 +52,13 @@ export function LoginPage() {
     try {
       await signInWithEmail(email, password);
     } catch (e: unknown) {
-      setError(getFirebaseError(e));
+      const code = (e as { code?: string })?.code ?? "";
+      if (code === "auth/email-not-verified") {
+        // Keep email/password in state so user can resend
+        setMode("verify-email");
+      } else {
+        setError(getFirebaseError(e));
+      }
     } finally {
       setLoading(false);
     }
@@ -71,6 +79,24 @@ export function LoginPage() {
     setError(null);
     try {
       await signUpWithEmail(email, password);
+      // Go to verify-email screen (keep email/password for resend)
+      setConfirmPassword("");
+      setMode("verify-email");
+    } catch (e: unknown) {
+      setError(getFirebaseError(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    if (!email || !password) return;
+    setLoading(true);
+    setError(null);
+    setResendSuccess(false);
+    try {
+      await resendVerificationEmail(email, password);
+      setResendSuccess(true);
     } catch (e: unknown) {
       setError(getFirebaseError(e));
     } finally {
@@ -103,7 +129,6 @@ export function LoginPage() {
               transition={{ duration: 0.18 }}
               className="space-y-3"
             >
-              {/* Replit login */}
               <Button
                 className="w-full h-11 text-sm font-medium gap-2.5"
                 onClick={login}
@@ -123,7 +148,6 @@ export function LoginPage() {
                 </div>
               </div>
 
-              {/* Google */}
               <Button
                 variant="outline"
                 className="w-full h-11 text-sm font-medium gap-2.5"
@@ -139,7 +163,6 @@ export function LoginPage() {
                 Continue with Google
               </Button>
 
-              {/* Email sign in */}
               <Button
                 variant="outline"
                 className="w-full h-11 text-sm font-medium gap-2.5"
@@ -263,6 +286,70 @@ export function LoginPage() {
               </div>
             </motion.form>
           )}
+
+          {/* ── VERIFY EMAIL ─────────────────────────────── */}
+          {mode === "verify-email" && (
+            <motion.div
+              key="verify-email"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+              className="space-y-4 text-center"
+            >
+              <div className="flex justify-center">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                  <MailCheck className="w-8 h-8 text-primary" />
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Check your email</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  We sent a verification link to
+                </p>
+                <p className="text-sm font-medium text-foreground mt-0.5">{email}</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Click the link in the email to verify your account, then come back and sign in.
+                </p>
+              </div>
+
+              {error && <ErrorBanner message={error} />}
+
+              {resendSuccess && (
+                <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-left">
+                  <MailCheck className="h-4 w-4 text-green-600 shrink-0" />
+                  <p className="text-xs text-green-700">Verification email resent successfully.</p>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Button
+                  className="w-full h-11"
+                  onClick={() => { setError(null); setMode("signin"); }}
+                >
+                  I've verified my email — Sign in
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="w-full h-10 text-sm"
+                  onClick={handleResendVerification}
+                  disabled={loading || !email || !password}
+                >
+                  {loading ? "Sending…" : "Resend verification email"}
+                </Button>
+              </div>
+
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => { clearForm(); setMode("choose"); }}
+              >
+                ← Back to login
+              </button>
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>
@@ -322,6 +409,7 @@ function getFirebaseError(e: unknown): string {
     "auth/user-not-found": "No account found with this email.",
     "auth/wrong-password": "Incorrect password. Please try again.",
     "auth/invalid-credential": "Invalid email or password.",
+    "auth/email-not-verified": "Please verify your email before signing in.",
     "auth/popup-closed-by-user": "Sign-in popup was closed. Please try again.",
     "auth/popup-blocked": "Popup was blocked. Please allow popups and try again.",
     "auth/too-many-requests": "Too many failed attempts. Please wait a moment and try again.",

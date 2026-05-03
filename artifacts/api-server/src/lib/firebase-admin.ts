@@ -31,6 +31,14 @@ export async function verifyFirebaseToken(idToken: string): Promise<{
   try {
     const app = getAdminApp();
     const decoded = await getAuth(app).verifyIdToken(idToken);
+
+    // Reject unverified email accounts (Google users are always verified)
+    const isGoogle = decoded.firebase?.sign_in_provider === "google.com";
+    if (!isGoogle && !decoded.email_verified) {
+      logger.warn({ uid: decoded.uid }, "Firebase token rejected: email not verified");
+      return null;
+    }
+
     return {
       uid: decoded.uid,
       email: decoded.email ?? null,

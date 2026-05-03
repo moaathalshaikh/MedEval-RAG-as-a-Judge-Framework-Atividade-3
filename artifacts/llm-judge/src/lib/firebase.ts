@@ -5,6 +5,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signOut,
   onAuthStateChanged,
   type User,
@@ -35,8 +36,7 @@ export function isInIframe(): boolean {
 /**
  * Sign in with Google.
  * - If NOT in an iframe: uses signInWithPopup (best UX).
- * - If in an iframe (e.g. Replit workspace preview): opens a small auth window
- *   outside the iframe so Google's X-Frame-Options doesn't block it.
+ * - If in an iframe (e.g. Replit workspace preview): tries popup; if blocked, opens new tab.
  */
 export async function signInWithGoogle(): Promise<User> {
   if (!isInIframe()) {
@@ -44,13 +44,11 @@ export async function signInWithGoogle(): Promise<User> {
     return result.user;
   }
 
-  // Inside iframe — open auth in a top-level popup window
   return new Promise((resolve, reject) => {
     const provider = new GoogleAuthProvider();
     signInWithPopup(auth, provider)
       .then((result) => resolve(result.user))
       .catch(async (err) => {
-        // popup-blocked inside iframe → guide user to open app directly
         if (
           err?.code === "auth/popup-blocked" ||
           err?.code === "auth/cancelled-popup-request"
@@ -70,14 +68,36 @@ export async function signInWithGoogle(): Promise<User> {
   });
 }
 
+/**
+ * Sign in with email/password.
+ * Throws auth/email-not-verified (custom) if account exists but email not verified.
+ */
 export async function signInWithEmail(email: string, password: string): Promise<User> {
   const result = await signInWithEmailAndPassword(auth, email, password);
+  if (!result.user.emailVerified) {
+    // Sign out immediately — don't allow unverified users in
+    await signOut(auth);
+    throw { code: "auth/email-not-verified" };
+  }
   return result.user;
 }
 
-export async function signUpWithEmail(email: string, password: string): Promise<User> {
+/**
+ * Register with email/password and send verification email.
+ * Does NOT sign the user into the app — they must verify first.
+ */
+export async function signUpWithEmail(email: string, password: string): Promise<void> {
   const result = await createUserWithEmailAndPassword(auth, email, password);
-  return result.user;
+  await sendEmailVerification(result.user);
+  // Sign out immediately — user must verify email before accessing the app
+  await signOut(auth);
+}
+
+/** Resend verification email to the currently signed-in (unverified) user */
+export async function resendVerificationEmail(email: string, password: string): Promise<void> {
+  const result = await signInWithEmailAndPassword(auth, email, password);
+  await sendEmailVerification(result.user);
+  await signOut(auth);
 }
 
 export async function firebaseSignOut(): Promise<void> {
