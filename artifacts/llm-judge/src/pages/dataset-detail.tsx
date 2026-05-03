@@ -140,6 +140,7 @@ export default function DatasetDetail() {
   const tableRef = useRef<HTMLDivElement>(null);
   const [viewQ, setViewQ] = useState<{ questionText: string; goldAnswer: string; questionType: string } | null>(null);
   const [showDeleteDataset, setShowDeleteDataset] = useState(false);
+  const [deleteQuestionId, setDeleteQuestionId] = useState<number | null>(null);
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: getListQuestionsQueryKey({ datasetId }) });
@@ -189,8 +190,7 @@ export default function DatasetDetail() {
   }
 
   function handleDelete(questionId: number) {
-    if (!confirm("Delete this question?")) return;
-    deleteQuestion.mutate({ id: questionId }, { onSuccess: invalidate });
+    setDeleteQuestionId(questionId);
   }
 
   // ── Tab 1: JSONL (open-ended) ─────────────────────────────────────────────
@@ -628,6 +628,41 @@ export default function DatasetDetail() {
               }}
             >
               {deleteDataset.isPending ? "Deleting…" : "Yes, delete dataset"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete question confirmation dialog */}
+      <Dialog open={deleteQuestionId !== null} onOpenChange={(open) => { if (!open) setDeleteQuestionId(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" /> Delete Question
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              Are you sure you want to delete this question? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 gap-2">
+            <Button variant="outline" onClick={() => setDeleteQuestionId(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteQuestion.isPending}
+              onClick={() => {
+                if (deleteQuestionId === null) return;
+                deleteQuestion.mutate({ id: deleteQuestionId }, {
+                  onSuccess: () => {
+                    invalidate();
+                    setDeleteQuestionId(null);
+                    toast({ title: "Question deleted" });
+                  },
+                });
+              }}
+            >
+              {deleteQuestion.isPending ? "Deleting…" : "Yes, delete question"}
             </Button>
           </DialogFooter>
         </DialogContent>

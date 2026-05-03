@@ -11,8 +11,10 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
+import { useState } from "react";
 import { currentUnifiedUser } from "@/components/auth-gate";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const modelSchema = z.object({
   modelName: z.string().min(1, "Model name is required"),
@@ -28,6 +30,7 @@ export default function Models() {
   const deleteModel = useDeleteModel();
   const queryClient = useQueryClient();
   const currentUserId = currentUnifiedUser?.id ?? null;
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null);
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(modelSchema),
@@ -46,15 +49,18 @@ export default function Models() {
     );
   }
 
-  function handleDelete(id: number) {
-    if (confirm("Delete this model?")) {
-      deleteModel.mutate({ id }, {
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() }),
-      });
-    }
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    deleteModel.mutate({ id: deleteTarget.id }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() });
+        setDeleteTarget(null);
+      },
+    });
   }
 
   return (
+    <>
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">SLM Models</h1>
@@ -163,7 +169,7 @@ export default function Models() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleDelete(model.id)}
+                              onClick={() => setDeleteTarget({ id: model.id, name: model.modelName })}
                               disabled={deleteModel.isPending}
                               className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                             >
@@ -199,5 +205,31 @@ export default function Models() {
         </Card>
       </div>
     </motion.div>
+
+    <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <Trash2 className="h-5 w-5" /> Delete Model
+          </DialogTitle>
+          <DialogDescription className="pt-2">
+            Are you sure you want to delete <span className="font-semibold text-foreground">"{deleteTarget?.name}"</span>? This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="mt-4 gap-2">
+          <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={deleteModel.isPending}
+            onClick={confirmDelete}
+          >
+            {deleteModel.isPending ? "Deleting…" : "Yes, delete model"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

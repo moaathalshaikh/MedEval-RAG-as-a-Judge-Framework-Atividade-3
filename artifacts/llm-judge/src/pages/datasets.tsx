@@ -14,8 +14,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
+import { useState } from "react";
 import { currentUnifiedUser } from "@/components/auth-gate";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 const datasetSchema = z.object({
   datasetName: z.string().min(1, "Dataset name is required"),
@@ -31,6 +33,7 @@ export default function Datasets() {
   const deleteDataset = useDeleteDataset();
   const queryClient = useQueryClient();
   const currentUserId = currentUnifiedUser?.id ?? null;
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; questionCount: number } | null>(null);
 
   const form = useForm<DatasetFormValues>({
     resolver: zodResolver(datasetSchema),
@@ -46,15 +49,18 @@ export default function Datasets() {
     });
   }
 
-  function handleDelete(id: number) {
-    if (confirm("Delete this dataset and all its questions?")) {
-      deleteDataset.mutate({ id }, {
-        onSuccess: () => queryClient.invalidateQueries({ queryKey: getListDatasetsQueryKey() }),
-      });
-    }
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    deleteDataset.mutate({ id: deleteTarget.id }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListDatasetsQueryKey() });
+        setDeleteTarget(null);
+      },
+    });
   }
 
   return (
+    <>
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Datasets</h1>
@@ -181,7 +187,7 @@ export default function Datasets() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => handleDelete(dataset.id)}
+                                onClick={() => setDeleteTarget({ id: dataset.id, name: dataset.datasetName, questionCount: dataset.questionCount })}
                                 disabled={deleteDataset.isPending}
                                 className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                               >
@@ -218,5 +224,32 @@ export default function Datasets() {
         </Card>
       </div>
     </motion.div>
+
+    <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-600">
+            <Trash2 className="h-5 w-5" /> Delete Dataset
+          </DialogTitle>
+          <DialogDescription className="pt-2">
+            This will permanently delete <span className="font-semibold text-foreground">"{deleteTarget?.name}"</span> and all{" "}
+            <span className="font-semibold text-foreground">{deleteTarget?.questionCount} questions</span> inside it. This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="mt-4 gap-2">
+          <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={deleteDataset.isPending}
+            onClick={confirmDelete}
+          >
+            {deleteDataset.isPending ? "Deleting…" : "Yes, delete dataset"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
