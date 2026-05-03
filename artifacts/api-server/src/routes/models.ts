@@ -33,6 +33,7 @@ function formatModel(m: typeof modelsTable.$inferSelect, creatorName: string | n
     modelSize: m.modelSize,
     notes: m.notes ?? null,
     createdAt: m.createdAt.toISOString(),
+    createdById: m.createdBy ?? null,
     createdByName: creatorName,
   };
 }
@@ -106,6 +107,7 @@ router.get("/models/:id", async (req, res): Promise<void> => {
 
 router.patch("/models/:id", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
 
   const params = UpdateModelParams.safeParse(req.params);
   if (!params.success) {
@@ -117,6 +119,17 @@ router.patch("/models/:id", async (req: Request, res: Response): Promise<void> =
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+
+  const [existing] = await db.select().from(modelsTable).where(eq(modelsTable.id, params.data.id));
+  if (!existing) {
+    res.status(404).json({ error: "Model not found" });
+    return;
+  }
+  if (existing.createdBy && existing.createdBy !== uid) {
+    res.status(403).json({ error: "You can only edit your own models" });
+    return;
+  }
+
   const updates: Record<string, unknown> = {};
   if (parsed.data.modelName != null) updates.modelName = parsed.data.modelName;
   if (parsed.data.modelSize != null) updates.modelSize = parsed.data.modelSize;
@@ -148,17 +161,25 @@ router.patch("/models/:id", async (req: Request, res: Response): Promise<void> =
 
 router.delete("/models/:id", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
 
   const params = DeleteModelParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [model] = await db.delete(modelsTable).where(eq(modelsTable.id, params.data.id)).returning();
-  if (!model) {
+
+  const [existing] = await db.select().from(modelsTable).where(eq(modelsTable.id, params.data.id));
+  if (!existing) {
     res.status(404).json({ error: "Model not found" });
     return;
   }
+  if (existing.createdBy && existing.createdBy !== uid) {
+    res.status(403).json({ error: "You can only delete your own models" });
+    return;
+  }
+
+  await db.delete(modelsTable).where(eq(modelsTable.id, params.data.id));
   res.sendStatus(204);
 });
 

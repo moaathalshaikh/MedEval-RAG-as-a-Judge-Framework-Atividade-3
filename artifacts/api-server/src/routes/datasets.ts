@@ -80,6 +80,7 @@ router.get("/datasets", async (_req, res): Promise<void> => {
     datasetType: r.datasetType,
     questionCount: r.questionCount ?? 0,
     createdAt: r.createdAt.toISOString(),
+    createdById: r.createdBy ?? null,
     createdByName: displayName({ email: r.creatorEmail ?? null, firstName: r.creatorFirstName ?? null, lastName: r.creatorLastName ?? null }),
   })));
 });
@@ -105,6 +106,7 @@ router.post("/datasets", async (req: Request, res: Response): Promise<void> => {
     datasetType: dataset.datasetType,
     questionCount: 0,
     createdAt: dataset.createdAt.toISOString(),
+    createdById: uid,
     createdByName: displayName(creator ?? null),
   });
 });
@@ -143,10 +145,18 @@ router.get("/datasets/:id", async (req, res): Promise<void> => {
 
 router.delete("/datasets/:id", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
   const params = DeleteDatasetParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
-  const [ds] = await db.delete(datasetsTable).where(eq(datasetsTable.id, params.data.id)).returning();
-  if (!ds) { res.status(404).json({ error: "Dataset not found" }); return; }
+
+  const [existing] = await db.select().from(datasetsTable).where(eq(datasetsTable.id, params.data.id));
+  if (!existing) { res.status(404).json({ error: "Dataset not found" }); return; }
+  if (existing.createdBy && existing.createdBy !== uid) {
+    res.status(403).json({ error: "You can only delete your own datasets" });
+    return;
+  }
+
+  await db.delete(datasetsTable).where(eq(datasetsTable.id, params.data.id));
   res.sendStatus(204);
 });
 

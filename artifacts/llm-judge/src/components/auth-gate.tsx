@@ -78,7 +78,7 @@ export function AuthGate({ children }: AuthGateProps) {
     const name = firebaseUser.displayName ?? firebaseUser.email ?? "User";
     const parts = name.split(" ");
     currentUnifiedUser = {
-      id: `firebase:${firebaseUser.uid}`,
+      id: `fb_${firebaseUser.uid}`,
       email: firebaseUser.email,
       firstName: parts[0] ?? null,
       lastName: parts.slice(1).join(" ") || null,

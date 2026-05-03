@@ -24,6 +24,7 @@ export const ListModelsResponseItem = zod.object({
   modelSize: zod.string(),
   notes: zod.string().nullish(),
   createdAt: zod.string(),
+  createdById: zod.string().nullish(),
   createdByName: zod.string().nullish(),
 });
 export const ListModelsResponse = zod.array(ListModelsResponseItem);
@@ -92,6 +93,7 @@ export const ListDatasetsResponseItem = zod.object({
   datasetType: zod.enum(["OPEN_ENDED", "MCQ"]),
   questionCount: zod.number(),
   createdAt: zod.string(),
+  createdById: zod.string().nullish(),
   createdByName: zod.string().nullish(),
 });
 export const ListDatasetsResponse = zod.array(ListDatasetsResponseItem);

@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, ChevronRight, Plus, ExternalLink } from "lucide-react";
+import { Trash2, Plus, ExternalLink, Lock } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
+import { currentUnifiedUser } from "@/components/auth-gate";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const datasetSchema = z.object({
   datasetName: z.string().min(1, "Dataset name is required"),
@@ -28,6 +30,7 @@ export default function Datasets() {
   const createDataset = useCreateDataset();
   const deleteDataset = useDeleteDataset();
   const queryClient = useQueryClient();
+  const currentUserId = currentUnifiedUser?.id ?? null;
 
   const form = useForm<DatasetFormValues>({
     resolver: zodResolver(datasetSchema),
@@ -166,22 +169,37 @@ export default function Datasets() {
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">{dataset.questionCount}</TableCell>
                       <TableCell className="text-right pr-4">
-                        <div className="flex items-center justify-end gap-1">
-                          <Link href={`/datasets/${dataset.id}`}>
-                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-primary border-primary/30 hover:bg-primary/5">
-                              <ExternalLink className="h-3.5 w-3.5" /> Open
-                            </Button>
-                          </Link>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDelete(dataset.id)}
-                            disabled={deleteDataset.isPending}
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <TooltipProvider>
+                          <div className="flex items-center justify-end gap-1">
+                            <Link href={`/datasets/${dataset.id}`}>
+                              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-primary border-primary/30 hover:bg-primary/5">
+                                <ExternalLink className="h-3.5 w-3.5" /> Open
+                              </Button>
+                            </Link>
+                            {currentUserId && dataset.createdById === currentUserId ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDelete(dataset.id)}
+                                disabled={deleteDataset.isPending}
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground/40 cursor-not-allowed">
+                                    <Lock className="h-3.5 w-3.5" />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="left">
+                                  <p>Only the owner can delete this dataset</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </TooltipProvider>
                       </TableCell>
                     </TableRow>
                   ))}

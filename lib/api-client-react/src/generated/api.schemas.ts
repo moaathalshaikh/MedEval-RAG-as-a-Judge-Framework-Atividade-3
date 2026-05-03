@@ -21,6 +21,8 @@ export interface Model {
   notes?: string | null;
   createdAt: string;
   /** @nullable */
+  createdById?: string | null;
+  /** @nullable */
   createdByName?: string | null;
 }
 
@@ -61,6 +63,8 @@ export interface Dataset {
   datasetType: DatasetType;
   questionCount: number;
   createdAt: string;
+  /** @nullable */
+  createdById?: string | null;
   /** @nullable */
   createdByName?: string | null;
 }

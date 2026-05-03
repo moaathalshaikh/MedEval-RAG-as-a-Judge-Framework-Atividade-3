@@ -4,13 +4,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Trash2, Plus } from "lucide-react";
+import { Trash2, Plus, Lock } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
+import { currentUnifiedUser } from "@/components/auth-gate";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const modelSchema = z.object({
   modelName: z.string().min(1, "Model name is required"),
@@ -25,6 +27,7 @@ export default function Models() {
   const createModel = useCreateModel();
   const deleteModel = useDeleteModel();
   const queryClient = useQueryClient();
+  const currentUserId = currentUnifiedUser?.id ?? null;
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(modelSchema),
@@ -154,15 +157,30 @@ export default function Models() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{model.notes || "—"}</TableCell>
                       <TableCell className="text-right pr-4">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(model.id)}
-                          disabled={deleteModel.isPending}
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <TooltipProvider>
+                          {currentUserId && model.createdById === currentUserId ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(model.id)}
+                              disabled={deleteModel.isPending}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground/40 cursor-not-allowed">
+                                  <Lock className="h-3.5 w-3.5" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left">
+                                <p>Only the owner can delete this model</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </TooltipProvider>
                       </TableCell>
                     </TableRow>
                   ))}
