@@ -2,8 +2,7 @@ import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -24,17 +23,51 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export async function signInWithGoogle(): Promise<void> {
-  await signInWithRedirect(auth, googleProvider);
+/** Returns true if the app is running inside an iframe */
+export function isInIframe(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
 }
 
-export async function handleGoogleRedirectResult(): Promise<User | null> {
-  try {
-    const result = await getRedirectResult(auth);
-    return result?.user ?? null;
-  } catch {
-    return null;
+/**
+ * Sign in with Google.
+ * - If NOT in an iframe: uses signInWithPopup (best UX).
+ * - If in an iframe (e.g. Replit workspace preview): opens a small auth window
+ *   outside the iframe so Google's X-Frame-Options doesn't block it.
+ */
+export async function signInWithGoogle(): Promise<User> {
+  if (!isInIframe()) {
+    const result = await signInWithPopup(auth, googleProvider);
+    return result.user;
   }
+
+  // Inside iframe — open auth in a top-level popup window
+  return new Promise((resolve, reject) => {
+    const provider = new GoogleAuthProvider();
+    signInWithPopup(auth, provider)
+      .then((result) => resolve(result.user))
+      .catch(async (err) => {
+        // popup-blocked inside iframe → guide user to open app directly
+        if (
+          err?.code === "auth/popup-blocked" ||
+          err?.code === "auth/cancelled-popup-request"
+        ) {
+          const target = window.top ?? window;
+          const appUrl =
+            window.location.protocol +
+            "//" +
+            window.location.host +
+            (import.meta.env.BASE_URL ?? "/");
+          target.open(appUrl, "_blank");
+          reject(new Error("__open_new_tab__"));
+        } else {
+          reject(err);
+        }
+      });
+  });
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<User> {

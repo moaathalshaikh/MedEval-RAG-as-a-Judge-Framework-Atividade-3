@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { auth, onAuthStateChanged, handleGoogleRedirectResult, type User as FirebaseUser } from "@/lib/firebase";
+import { auth, onAuthStateChanged, type User as FirebaseUser } from "@/lib/firebase";
 import { LoginPage } from "./login-page";
 
 interface AuthGateProps {
@@ -42,11 +42,6 @@ export function AuthGate({ children }: AuthGateProps) {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
   const [firebaseSessionOk, setFirebaseSessionOk] = useState(false);
-
-  // On mount: handle Google redirect result (user returning from OAuth)
-  useEffect(() => {
-    handleGoogleRedirectResult().catch(() => null);
-  }, []);
 
   // Listen to Firebase auth state changes
   useEffect(() => {

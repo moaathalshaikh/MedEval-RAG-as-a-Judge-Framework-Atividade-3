@@ -29,14 +29,17 @@ export function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      // signInWithGoogle uses redirect — page will navigate to Google then return
       await signInWithGoogle();
-      // page navigates away here; no further code runs
     } catch (e: unknown) {
-      setError(getFirebaseError(e));
+      const msg = (e as Error)?.message ?? "";
+      if (msg === "__open_new_tab__") {
+        setError("Google sign-in opened in a new tab. Complete sign-in there, then return here and refresh.");
+      } else {
+        setError(getFirebaseError(e));
+      }
+    } finally {
       setLoading(false);
     }
-    // intentionally no finally — loading stays true while redirect happens
   }
 
   async function handleEmailSignIn(e: React.FormEvent) {
