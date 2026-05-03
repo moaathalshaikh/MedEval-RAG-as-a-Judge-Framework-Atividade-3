@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerificationEmail } from "@/lib/firebase";
+import { signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerificationEmail, sendPasswordReset } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Stethoscope, Mail, Eye, EyeOff, AlertCircle, MailCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
-type Mode = "choose" | "signin" | "signup" | "verify-email";
+type Mode = "choose" | "signin" | "signup" | "verify-email" | "forgot-password";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -18,6 +18,7 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resendSuccess, setResendSuccess] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   function clearForm() {
     setEmail("");
@@ -25,6 +26,7 @@ export function LoginPage() {
     setConfirmPassword("");
     setError(null);
     setResendSuccess(false);
+    setResetSent(false);
   }
 
   async function handleGoogleSignIn() {
@@ -82,6 +84,22 @@ export function LoginPage() {
       // Go to verify-email screen (keep email/password for resend)
       setConfirmPassword("");
       setMode("verify-email");
+    } catch (e: unknown) {
+      setError(getFirebaseError(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email) return;
+    setLoading(true);
+    setError(null);
+    setResetSent(false);
+    try {
+      await sendPasswordReset(email);
+      setResetSent(true);
     } catch (e: unknown) {
       setError(getFirebaseError(e));
     } finally {
@@ -206,8 +224,8 @@ export function LoginPage() {
                 <button type="button" className="hover:text-foreground" onClick={() => { clearForm(); setMode("choose"); }}>
                   ← Back
                 </button>
-                <button type="button" className="text-primary hover:underline" onClick={() => { clearForm(); setMode("signup"); }}>
-                  Create account
+                <button type="button" className="text-primary hover:underline" onClick={() => { setError(null); setMode("forgot-password"); }}>
+                  Forgot password?
                 </button>
               </div>
             </motion.form>
@@ -330,6 +348,56 @@ export function LoginPage() {
                 ← Back to login
               </button>
             </motion.div>
+          )}
+
+          {/* ── FORGOT PASSWORD ──────────────────────────── */}
+          {mode === "forgot-password" && (
+            <motion.form
+              key="forgot-password"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18 }}
+              onSubmit={handleForgotPassword}
+              className="space-y-3"
+            >
+              <h2 className="text-lg font-semibold text-foreground mb-1">Reset password</h2>
+              <p className="text-sm text-muted-foreground">
+                Enter your email address and we'll send you a link to reset your password.
+              </p>
+
+              {error && <ErrorBanner message={error} />}
+
+              {resetSent ? (
+                <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-3 text-left">
+                  <MailCheck className="h-4 w-4 text-green-600 shrink-0" />
+                  <p className="text-xs text-green-700">
+                    Reset link sent! Check your inbox (and spam folder).
+                  </p>
+                </div>
+              ) : (
+                <Input
+                  type="email"
+                  placeholder="Email address"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              )}
+
+              {!resetSent && (
+                <Button type="submit" className="w-full h-11" disabled={loading}>
+                  {loading ? "Sending…" : "Send reset link"}
+                </Button>
+              )}
+
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+                <button type="button" className="hover:text-foreground" onClick={() => { clearForm(); setMode("signin"); }}>
+                  ← Back to sign in
+                </button>
+              </div>
+            </motion.form>
           )}
         </AnimatePresence>
       </div>

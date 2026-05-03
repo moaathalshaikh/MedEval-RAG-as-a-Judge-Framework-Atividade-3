@@ -6,6 +6,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
+  confirmPasswordReset,
   signOut,
   onAuthStateChanged,
   type User,
@@ -107,6 +109,20 @@ export async function resendVerificationEmail(email: string, password: string): 
   const result = await signInWithEmailAndPassword(auth, email, password);
   await sendEmailVerification(result.user, getActionCodeSettings());
   await signOut(auth);
+}
+
+/** Send a password reset email */
+export async function sendPasswordReset(email: string): Promise<void> {
+  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  await sendPasswordResetEmail(auth, email, {
+    url: `${window.location.origin}${base}/auth/action`,
+    handleCodeInApp: false,
+  });
+}
+
+/** Complete the password reset with a new password */
+export async function completePasswordReset(oobCode: string, newPassword: string): Promise<void> {
+  await confirmPasswordReset(auth, oobCode, newPassword);
 }
 
 export async function firebaseSignOut(): Promise<void> {

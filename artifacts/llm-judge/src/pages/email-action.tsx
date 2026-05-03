@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { applyActionCode } from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import { Stethoscope, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { auth, completePasswordReset } from "@/lib/firebase";
+import { Stethoscope, CheckCircle2, XCircle, Loader2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
-type Status = "loading" | "success" | "error";
+type Status = "loading" | "success" | "error" | "reset-form" | "reset-success";
 
 function getParam(name: string): string | null {
   return new URLSearchParams(window.location.search).get(name);
@@ -14,18 +15,22 @@ export default function EmailAction() {
   const [status, setStatus] = useState<Status>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
+  // Reset-password form state
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
   const mode = getParam("mode");
   const oobCode = getParam("oobCode");
 
   useEffect(() => {
     if (mode === "verifyEmail" && oobCode) {
-      // Our app received the link directly — apply the code ourselves
       applyActionCode(auth, oobCode)
         .then(() => setStatus("success"))
         .catch((err) => {
           const code = err?.code ?? "";
-          // Firebase may have already applied the code on its own hosted page
-          // before redirecting here — email IS verified, show success.
           if (
             code === "auth/invalid-action-code" ||
             code === "auth/expired-action-code"
@@ -36,15 +41,47 @@ export default function EmailAction() {
             setStatus("error");
           }
         });
+    } else if (mode === "resetPassword" && oobCode) {
+      // Show password reset form — do not apply code yet
+      setStatus("reset-form");
     } else if (!mode && !oobCode) {
-      // Firebase verified the email on its own page and redirected here
-      // with no parameters — this is a post-verification redirect, show success.
+      // Firebase redirect after processing on its own page
       setStatus("success");
     } else {
       setErrorMessage("Invalid or unsupported action link.");
       setStatus("error");
     }
   }, []);
+
+  async function handlePasswordReset(e: React.FormEvent) {
+    e.preventDefault();
+    if (!oobCode) return;
+    if (newPassword !== confirmPassword) {
+      setResetError("Passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setResetError("Password must be at least 6 characters.");
+      return;
+    }
+    setResetLoading(true);
+    setResetError(null);
+    try {
+      await completePasswordReset(oobCode, newPassword);
+      setStatus("reset-success");
+    } catch (err) {
+      const code = (err as { code?: string })?.code ?? "";
+      if (code === "auth/expired-action-code" || code === "auth/invalid-action-code") {
+        setResetError("This reset link has expired. Please request a new one.");
+      } else if (code === "auth/weak-password") {
+        setResetError("Password must be at least 6 characters.");
+      } else {
+        setResetError("Something went wrong. Please try again.");
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  }
 
   const appBase = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
 
@@ -67,11 +104,11 @@ export default function EmailAction() {
         {status === "loading" && (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-10 h-10 text-primary animate-spin" />
-            <p className="text-sm text-muted-foreground">Verifying your email address…</p>
+            <p className="text-sm text-muted-foreground">Processing…</p>
           </div>
         )}
 
-        {/* Success */}
+        {/* Email verified — success */}
         {status === "success" && (
           <div className="space-y-5">
             <div className="flex justify-center">
@@ -85,10 +122,77 @@ export default function EmailAction() {
                 Your email address has been confirmed. You can now sign in to MedEval Judge.
               </p>
             </div>
-            <Button
-              className="w-full h-11"
-              onClick={() => window.location.href = appBase + "/"}
-            >
+            <Button className="w-full h-11" onClick={() => window.location.href = appBase + "/"}>
+              Sign in to MedEval Judge
+            </Button>
+          </div>
+        )}
+
+        {/* Reset password — form */}
+        {status === "reset-form" && (
+          <form onSubmit={handlePasswordReset} className="space-y-4 text-left">
+            <div className="text-center">
+              <h2 className="text-xl font-semibold text-foreground">Set new password</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Choose a strong password for your account.
+              </p>
+            </div>
+
+            {resetError && (
+              <div className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2.5">
+                <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                <p className="text-xs text-destructive leading-relaxed">{resetError}</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="New password (min. 6 characters)"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <Input
+                type={showPassword ? "text" : "password"}
+                placeholder="Confirm new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <Button type="submit" className="w-full h-11" disabled={resetLoading}>
+              {resetLoading ? "Saving…" : "Set new password"}
+            </Button>
+          </form>
+        )}
+
+        {/* Reset password — success */}
+        {status === "reset-success" && (
+          <div className="space-y-5">
+            <div className="flex justify-center">
+              <div className="w-20 h-20 rounded-full bg-green-50 border border-green-100 flex items-center justify-center">
+                <CheckCircle2 className="w-10 h-10 text-green-600" />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">Password updated!</h2>
+              <p className="text-sm text-muted-foreground mt-2">
+                Your password has been changed successfully. You can now sign in.
+              </p>
+            </div>
+            <Button className="w-full h-11" onClick={() => window.location.href = appBase + "/"}>
               Sign in to MedEval Judge
             </Button>
           </div>
@@ -103,14 +207,10 @@ export default function EmailAction() {
               </div>
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-foreground">Verification failed</h2>
+              <h2 className="text-xl font-semibold text-foreground">Something went wrong</h2>
               <p className="text-sm text-muted-foreground mt-2">{errorMessage}</p>
             </div>
-            <Button
-              variant="outline"
-              className="w-full h-11"
-              onClick={() => window.location.href = appBase + "/"}
-            >
+            <Button variant="outline" className="w-full h-11" onClick={() => window.location.href = appBase + "/"}>
               Back to sign in
             </Button>
           </div>
