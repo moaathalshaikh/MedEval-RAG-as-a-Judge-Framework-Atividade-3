@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, ChevronDown } from "lucide-react";
+import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
+import { useSharedJudgeModelId } from "@/hooks/use-shared-judge";
 
 interface ActiveJudgeModel {
   id: number;
@@ -51,11 +52,14 @@ function useActiveJudgeModels() {
   });
 }
 
-function useRefStatus(datasetId: string | null) {
+function useRefStatus(datasetId: string | null, judgeModelId: string) {
   return useQuery<RefStatus>({
-    queryKey: ["reference-answers", "status", datasetId],
-    queryFn: () =>
-      fetch(`/api/reference-answers/status?datasetId=${datasetId}`, { credentials: "include" }).then((r) => r.json()),
+    queryKey: ["reference-answers", "status", datasetId, judgeModelId],
+    queryFn: () => {
+      const params = new URLSearchParams({ datasetId: datasetId! });
+      if (judgeModelId) params.set("judgeModelId", judgeModelId);
+      return fetch(`/api/reference-answers/status?${params}`, { credentials: "include" }).then((r) => r.json());
+    },
     enabled: !!datasetId,
     staleTime: 0,
   });
@@ -69,12 +73,12 @@ export default function Evaluate() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [selectedJudgeId, setSelectedJudgeId] = useState<string>("");
+  const [selectedJudgeId, setSelectedJudgeId] = useSharedJudgeModelId();
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
 
-  const { data: refStatus } = useRefStatus(selectedDatasetId || null);
+  const { data: refStatus } = useRefStatus(selectedDatasetId || null, selectedJudgeId);
 
   const refComplete = refStatus ? refStatus.covered >= refStatus.total && refStatus.total > 0 : false;
   const refProgress = refStatus && refStatus.total > 0

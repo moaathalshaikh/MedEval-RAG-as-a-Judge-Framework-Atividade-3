@@ -22,8 +22,8 @@ async function getUserSetting(userId: string, key: string): Promise<string | nul
   return row?.value ?? null;
 }
 
-// GET /reference-answers/status?datasetId=X
-// Returns how many questions in the dataset have reference answers for the current judge model
+// GET /reference-answers/status?datasetId=X[&judgeModelId=Y]
+// Returns how many questions in the dataset have reference answers for the given (or saved) judge model
 router.get("/reference-answers/status", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
   const uid = req.user!.id;
@@ -31,13 +31,18 @@ router.get("/reference-answers/status", async (req: Request, res: Response): Pro
   const datasetId = req.query.datasetId ? parseInt(req.query.datasetId as string) : null;
   if (!datasetId) { res.status(400).json({ error: "datasetId required" }); return; }
 
-  // Get user's judge model id
-  const judgeModelIdStr = await getUserSetting(uid, "judge_model_id");
-  if (!judgeModelIdStr) {
-    res.json({ total: 0, covered: 0, judgeModelId: null });
-    return;
+  // Prefer explicitly passed judgeModelId, fall back to user's saved setting
+  let judgeModelId: number;
+  if (req.query.judgeModelId) {
+    judgeModelId = parseInt(req.query.judgeModelId as string);
+  } else {
+    const judgeModelIdStr = await getUserSetting(uid, "judge_model_id");
+    if (!judgeModelIdStr) {
+      res.json({ total: 0, covered: 0, judgeModelId: null });
+      return;
+    }
+    judgeModelId = parseInt(judgeModelIdStr);
   }
-  const judgeModelId = parseInt(judgeModelIdStr);
 
   // Count total questions in dataset
   const questions = await db.select({ id: questionsTable.id })
@@ -64,26 +69,44 @@ router.get("/reference-answers/status", async (req: Request, res: Response): Pro
 });
 
 // POST /reference-answers/generate
-// Body: { datasetId: number, questionIds?: number[] }
+// Body: { datasetId: number, judgeModelId?: number, questionIds?: number[] }
 router.post("/reference-answers/generate", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
   const uid = req.user!.id;
 
-  const { datasetId, questionIds: specificIds } = req.body as {
+  const { datasetId, judgeModelId: bodyJudgeModelId, questionIds: specificIds } = req.body as {
     datasetId?: number;
+    judgeModelId?: number;
     questionIds?: number[];
   };
 
   if (!datasetId) { res.status(400).json({ error: "datasetId required" }); return; }
 
-  // Get judge model configuration
-  const judgeModelIdStr = await getUserSetting(uid, "judge_model_id");
-  const modelVersion = await getUserSetting(uid, "judge_model_version");
-  if (!judgeModelIdStr || !modelVersion) {
-    res.status(400).json({ error: "No judge model configured. Please configure one in Settings." });
+  // Prefer explicitly passed judgeModelId, fall back to user's saved setting
+  let judgeModelId: number;
+  let modelVersion: string | null;
+
+  if (bodyJudgeModelId) {
+    judgeModelId = bodyJudgeModelId;
+    modelVersion = await getUserSetting(uid, `judge_model_version_${judgeModelId}`);
+    if (!modelVersion) {
+      // Fall back to the global saved version if per-provider not found
+      modelVersion = await getUserSetting(uid, "judge_model_version");
+    }
+  } else {
+    const judgeModelIdStr = await getUserSetting(uid, "judge_model_id");
+    modelVersion = await getUserSetting(uid, "judge_model_version");
+    if (!judgeModelIdStr || !modelVersion) {
+      res.status(400).json({ error: "No judge model configured. Please configure one in Settings." });
+      return;
+    }
+    judgeModelId = parseInt(judgeModelIdStr);
+  }
+
+  if (!modelVersion) {
+    res.status(400).json({ error: "No model version found for this judge model. Please save it in Settings first." });
     return;
   }
-  const judgeModelId = parseInt(judgeModelIdStr);
 
   const [judgeModel] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, judgeModelId));
   if (!judgeModel) { res.status(404).json({ error: "Judge model not found" }); return; }

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, CheckCircle2, SkipForward, Sparkles, Settings, ArrowRight } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -13,12 +12,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
+import { useSharedJudgeModelId } from "@/hooks/use-shared-judge";
 
-interface JudgeModelConfig {
-  judgeModelId: number | null;
-  displayName: string | null;
-  provider: string | null;
-  modelVersion: string | null;
+interface ActiveJudgeModel {
+  id: number;
+  provider: string;
+  displayName: string;
+  modelVersion: string;
+  hasKey: boolean;
+  active: boolean;
 }
 
 interface RefStatus {
@@ -33,32 +35,37 @@ interface GenerateRefResult {
   errors: string[];
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  OpenAI: "OpenAI",
-  Gemini: "Google",
-  Claude: "Anthropic",
-  DeepSeek: "DeepSeek",
+const PROVIDER_META: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
+  OpenAI:   { label: "OpenAI",    bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
+  Gemini:   { label: "Google",    bg: "bg-blue-50",    text: "text-blue-700",    border: "border-blue-200",    dot: "bg-blue-500"    },
+  Claude:   { label: "Anthropic", bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   dot: "bg-amber-500"   },
+  DeepSeek: { label: "DeepSeek",  bg: "bg-violet-50",  text: "text-violet-700",  border: "border-violet-200",  dot: "bg-violet-500"  },
 };
 
-function useJudgeModel() {
-  return useQuery<JudgeModelConfig>({
-    queryKey: ["settings", "judge-model"],
-    queryFn: () => fetch("/api/settings/judge-model", { credentials: "include" }).then((r) => r.json()),
+function useActiveJudgeModels() {
+  return useQuery<ActiveJudgeModel[]>({
+    queryKey: ["settings", "active-judge-models"],
+    queryFn: () =>
+      fetch("/api/settings/active-judge-models", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
   });
 }
 
-function useRefStatus(datasetId: string | null) {
+function useRefStatus(datasetId: string | null, judgeModelId: string) {
   return useQuery<RefStatus>({
-    queryKey: ["reference-answers", "status", datasetId],
-    queryFn: () =>
-      fetch(`/api/reference-answers/status?datasetId=${datasetId}`, { credentials: "include" }).then((r) => r.json()),
+    queryKey: ["reference-answers", "status", datasetId, judgeModelId],
+    queryFn: () => {
+      const params = new URLSearchParams({ datasetId: datasetId! });
+      if (judgeModelId) params.set("judgeModelId", judgeModelId);
+      return fetch(`/api/reference-answers/status?${params}`, { credentials: "include" }).then((r) => r.json());
+    },
     enabled: !!datasetId,
     staleTime: 0,
   });
 }
 
 function useGenerateRefAnswers() {
-  return useMutation<GenerateRefResult, { error?: string }, { datasetId: number }>({
+  return useMutation<GenerateRefResult, { error?: string }, { datasetId: number; judgeModelId: number }>({
     mutationFn: (body) =>
       fetch("/api/reference-answers/generate", {
         method: "POST",
@@ -74,36 +81,56 @@ function useGenerateRefAnswers() {
 
 export default function ReferenceAnswers() {
   const { data: datasets, isLoading: isLoadingDatasets } = useListDatasets();
-  const { data: judgeModel, isLoading: isLoadingJudge } = useJudgeModel();
+  const { data: activeJudgeModels, isLoading: isLoadingJudge } = useActiveJudgeModels();
+  const [selectedJudgeId, setSelectedJudgeId] = useSharedJudgeModelId();
   const generateRef = useGenerateRefAnswers();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
-  const [result, setResult] = useState<GenerateRefResult | null>(null);
+  const { data: selectedDatasetData } = useQuery<string>({
+    queryKey: ["ui", "selectedDatasetId"],
+    queryFn: () => "",
+    staleTime: Infinity,
+  });
+  const selectedDatasetId = selectedDatasetData ?? "";
+  function setSelectedDatasetId(id: string) {
+    queryClient.setQueryData(["ui", "selectedDatasetId"], id);
+  }
 
-  const { data: refStatus, refetch: refetchStatus } = useRefStatus(selectedDatasetId || null);
+  const { data: refStatus, refetch: refetchStatus } = useRefStatus(
+    selectedDatasetId || null,
+    selectedJudgeId
+  );
 
   const refComplete = refStatus ? refStatus.covered >= refStatus.total && refStatus.total > 0 : false;
   const refProgress = refStatus && refStatus.total > 0
     ? Math.round((refStatus.covered / refStatus.total) * 100)
     : 0;
 
-  const isReady = !!(judgeModel?.judgeModelId) && !!selectedDatasetId;
+  const selectedJudge = activeJudgeModels?.find((m) => m.id.toString() === selectedJudgeId);
+  const judgeMeta = selectedJudge ? PROVIDER_META[selectedJudge.provider] : null;
+  const hasActiveModels = (activeJudgeModels?.length ?? 0) > 0;
+  const isReady = !!selectedJudge && !!selectedDatasetId;
+
+  const { data: resultData } = useQuery<GenerateRefResult | null>({
+    queryKey: ["ui", "refGenResult"],
+    queryFn: () => null,
+    staleTime: Infinity,
+  });
 
   function handleGenerate() {
-    if (!isReady) return;
-    setResult(null);
+    if (!isReady || !selectedJudge) return;
+    queryClient.setQueryData(["ui", "refGenResult"], null);
     generateRef.mutate(
-      { datasetId: parseInt(selectedDatasetId) },
+      { datasetId: parseInt(selectedDatasetId), judgeModelId: selectedJudge.id },
       {
         onSuccess: (res) => {
-          setResult(res);
+          queryClient.setQueryData(["ui", "refGenResult"], res);
           refetchStatus();
           queryClient.invalidateQueries({ queryKey: ["reference-answers"] });
           toast({
             title: "Reference answers ready",
-            description: `Generated ${res.generated} answers using ${judgeModel?.displayName}.`,
+            description: `Generated ${res.generated} answers using ${selectedJudge.displayName}.`,
           });
         },
         onError: (err) => {
@@ -128,39 +155,79 @@ export default function ReferenceAnswers() {
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-8 space-y-4">
 
-          {/* Judge model status */}
+          {/* Judge model dropdown — same pattern as Evaluate page */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Judge Model (Large LLM)</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Judge Model (Large LLM)</CardTitle>
+                <Link href="/settings">
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                    <Settings className="h-3.5 w-3.5" />
+                    Manage
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               {isLoadingJudge ? (
-                <Skeleton className="h-14 w-full" />
-              ) : judgeModel?.judgeModelId ? (
-                <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div>
-                    <p className="font-semibold text-green-800">{judgeModel.displayName}</p>
-                    <p className="text-xs text-green-600 mt-0.5">
-                      {PROVIDER_LABEL[judgeModel.provider ?? ""] ?? judgeModel.provider} · {judgeModel.modelVersion}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-green-100 text-green-700 border-0">Active</Badge>
-                    <Link href="/settings">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600">
-                        <Settings className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              ) : (
+                <Skeleton className="h-10 w-full" />
+              ) : !hasActiveModels ? (
                 <Alert className="border-amber-200 bg-amber-50">
                   <AlertCircle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="text-amber-700 text-sm">
-                    No judge model configured.{" "}
-                    <Link href="/settings" className="underline font-medium">Configure in Settings →</Link>
+                    No active judge models.{" "}
+                    <Link href="/settings" className="underline font-medium">
+                      Configure a model in Settings →
+                    </Link>
                   </AlertDescription>
                 </Alert>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Select judge model</Label>
+                    <Select value={selectedJudgeId} onValueChange={setSelectedJudgeId}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="— choose a configured judge model —" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeJudgeModels?.map((m) => {
+                          const meta = PROVIDER_META[m.provider];
+                          return (
+                            <SelectItem key={m.id} value={m.id.toString()}>
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${meta?.dot ?? "bg-muted"}`} />
+                                <span className="font-medium">{meta?.label ?? m.provider}</span>
+                                <span className="text-muted-foreground font-mono text-xs">·  {m.modelVersion}</span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Selected judge preview */}
+                  {selectedJudge && judgeMeta && (
+                    <motion.div
+                      key={selectedJudgeId}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg border ${judgeMeta.bg} ${judgeMeta.border}`}
+                    >
+                      <div>
+                        <p className={`text-sm font-semibold ${judgeMeta.text}`}>{selectedJudge.displayName}</p>
+                        <p className={`text-xs opacity-70 mt-0.5 ${judgeMeta.text}`}>
+                          {judgeMeta.label} · {selectedJudge.modelVersion}
+                        </p>
+                      </div>
+                      <Badge className={`text-xs border-0 ${judgeMeta.bg} ${judgeMeta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${judgeMeta.dot}`} />
+                        Active
+                      </Badge>
+                    </motion.div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -178,7 +245,7 @@ export default function ReferenceAnswers() {
                 {isLoadingDatasets ? <Skeleton className="h-10 w-full" /> : (
                   <Select value={selectedDatasetId} onValueChange={(v) => {
                     setSelectedDatasetId(v);
-                    setResult(null);
+                    queryClient.setQueryData(["ui", "refGenResult"], null);
                   }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a dataset" />
@@ -204,7 +271,7 @@ export default function ReferenceAnswers() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Status bar */}
-              {selectedDatasetId && refStatus && refStatus.total > 0 && (
+              {selectedDatasetId && selectedJudgeId && refStatus && refStatus.total > 0 && (
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Coverage</span>
@@ -241,37 +308,41 @@ export default function ReferenceAnswers() {
 
               {!isReady && (
                 <p className="text-xs text-muted-foreground text-center">
-                  {!judgeModel?.judgeModelId ? "Configure a judge model first" : "Select a dataset to continue"}
+                  {!hasActiveModels
+                    ? "Configure a judge model in Settings first"
+                    : !selectedJudge
+                    ? "Select a judge model above"
+                    : "Select a dataset to continue"}
                 </p>
               )}
 
               {/* Result summary */}
-              {result && (
+              {resultData && (
                 <div className="space-y-3 pt-1">
                   <div className="flex gap-3">
                     <div className="flex-1 flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                       <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
                       <div>
-                        <p className="text-xl font-bold text-green-700">{result.generated}</p>
+                        <p className="text-xl font-bold text-green-700">{resultData.generated}</p>
                         <p className="text-xs text-green-600">Generated</p>
                       </div>
                     </div>
-                    {result.skipped > 0 && (
+                    {resultData.skipped > 0 && (
                       <div className="flex-1 flex items-center gap-3 p-3 bg-muted border border-border rounded-lg">
                         <SkipForward className="h-5 w-5 text-muted-foreground shrink-0" />
                         <div>
-                          <p className="text-xl font-bold">{result.skipped}</p>
+                          <p className="text-xl font-bold">{resultData.skipped}</p>
                           <p className="text-xs text-muted-foreground">Skipped</p>
                         </div>
                       </div>
                     )}
                   </div>
-                  {result.errors.length > 0 && (
+                  {resultData.errors.length > 0 && (
                     <Alert variant="destructive">
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription className="text-xs">
-                        {result.errors.slice(0, 3).join("; ")}
-                        {result.errors.length > 3 && ` (+${result.errors.length - 3} more)`}
+                        {resultData.errors.slice(0, 3).join("; ")}
+                        {resultData.errors.length > 3 && ` (+${resultData.errors.length - 3} more)`}
                       </AlertDescription>
                     </Alert>
                   )}
