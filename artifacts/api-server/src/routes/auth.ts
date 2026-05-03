@@ -7,6 +7,7 @@ import {
   LogoutMobileSessionResponse,
 } from "@workspace/api-zod";
 import { db, usersTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import {
   clearSession,
   getOidcConfig,
@@ -208,44 +209,35 @@ router.post("/auth/firebase-session", async (req: Request, res: Response) => {
   const userId = `fb_${claims.uid}`;
   const nameParts = claims.name?.split(" ") ?? [];
 
+  // Check if email is already taken by a different user to avoid unique constraint error
+  let safeEmail: string | null = claims.email ?? null;
+  if (safeEmail) {
+    const [existing] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(eq(usersTable.email, safeEmail))
+      .limit(1);
+    if (existing && existing.id !== userId) {
+      safeEmail = null; // email belongs to another account — don't store it
+    }
+  }
+
   const userData = {
     id: userId,
-    email: claims.email,
+    email: safeEmail,
     firstName: nameParts[0] ?? null,
     lastName: nameParts.slice(1).join(" ") || null,
     profileImageUrl: claims.picture,
   };
 
-  let user: typeof usersTable.$inferSelect;
-
-  try {
-    const [inserted] = await db
-      .insert(usersTable)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: usersTable.id,
-        set: { ...userData, updatedAt: new Date() },
-      })
-      .returning();
-    user = inserted;
-  } catch (e: unknown) {
-    // email unique constraint violation — another account uses this email
-    // retry without email so the Firebase user gets their own isolated record
-    const isUniqueViolation =
-      typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "23505";
-    if (!isUniqueViolation) throw e;
-
-    const dataWithoutEmail = { ...userData, email: null };
-    const [inserted] = await db
-      .insert(usersTable)
-      .values(dataWithoutEmail)
-      .onConflictDoUpdate({
-        target: usersTable.id,
-        set: { ...dataWithoutEmail, updatedAt: new Date() },
-      })
-      .returning();
-    user = inserted;
-  }
+  const [user] = await db
+    .insert(usersTable)
+    .values(userData)
+    .onConflictDoUpdate({
+      target: usersTable.id,
+      set: { ...userData, updatedAt: new Date() },
+    })
+    .returning();
 
   const sessionData: SessionData = {
     user: {
