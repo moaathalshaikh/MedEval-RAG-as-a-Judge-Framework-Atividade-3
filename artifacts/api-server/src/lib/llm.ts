@@ -15,11 +15,18 @@ async function getApiKey(provider: LLMProvider): Promise<string | null> {
   return row?.value ?? null;
 }
 
+export interface LLMResult {
+  text: string;
+  inferenceTimeMs: number;
+  /** Model name confirmed by the provider in their response body */
+  confirmedModel: string | null;
+}
+
 export async function callLLM(
   provider: LLMProvider,
   modelVersion: string,
   prompt: string
-): Promise<{ text: string; inferenceTimeMs: number }> {
+): Promise<LLMResult> {
   const apiKey = await getApiKey(provider);
   const start = Date.now();
 
@@ -36,8 +43,15 @@ export async function callLLM(
       }),
     });
     if (!response.ok) throw new Error(`OpenAI error: ${await response.text()}`);
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-    return { text: data.choices[0]?.message?.content ?? "", inferenceTimeMs: Date.now() - start };
+    const data = (await response.json()) as {
+      model: string;
+      choices: Array<{ message: { content: string } }>;
+    };
+    return {
+      text: data.choices[0]?.message?.content ?? "",
+      inferenceTimeMs: Date.now() - start,
+      confirmedModel: data.model ?? null,
+    };
   }
 
   if (provider === "Gemini") {
@@ -53,11 +67,14 @@ export async function callLLM(
     });
     if (!response.ok) throw new Error(`Gemini error: ${await response.text()}`);
     const data = (await response.json()) as {
+      modelVersion?: string;
       candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
     };
     return {
       text: data.candidates[0]?.content?.parts[0]?.text ?? "",
       inferenceTimeMs: Date.now() - start,
+      // Gemini returns modelVersion in the response body
+      confirmedModel: data.modelVersion ? `models/${data.modelVersion}` : `models/${modelVersion}`,
     };
   }
 
@@ -77,8 +94,15 @@ export async function callLLM(
       }),
     });
     if (!response.ok) throw new Error(`Claude error: ${await response.text()}`);
-    const data = (await response.json()) as { content: Array<{ text: string }> };
-    return { text: data.content[0]?.text ?? "", inferenceTimeMs: Date.now() - start };
+    const data = (await response.json()) as {
+      model: string;
+      content: Array<{ text: string }>;
+    };
+    return {
+      text: data.content[0]?.text ?? "",
+      inferenceTimeMs: Date.now() - start,
+      confirmedModel: data.model ?? null,
+    };
   }
 
   if (provider === "DeepSeek") {
@@ -94,8 +118,15 @@ export async function callLLM(
       }),
     });
     if (!response.ok) throw new Error(`DeepSeek error: ${await response.text()}`);
-    const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
-    return { text: data.choices[0]?.message?.content ?? "", inferenceTimeMs: Date.now() - start };
+    const data = (await response.json()) as {
+      model: string;
+      choices: Array<{ message: { content: string } }>;
+    };
+    return {
+      text: data.choices[0]?.message?.content ?? "",
+      inferenceTimeMs: Date.now() - start,
+      confirmedModel: data.model ?? null,
+    };
   }
 
   throw new Error(`Unknown provider: ${provider}`);
@@ -125,7 +156,7 @@ Question: ${question}
 Correct Answer: ${goldAnswer}
 Model Response: ${modelResponse}
 
-For MCQ questions: 
+For MCQ questions:
 - If the model's response matches the correct answer (same letter/option), score = 5
 - If the model's response does not match, score = 1
 

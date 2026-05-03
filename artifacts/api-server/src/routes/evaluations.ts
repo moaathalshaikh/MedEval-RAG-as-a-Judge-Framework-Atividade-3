@@ -30,6 +30,9 @@ function formatEval(e: typeof judgeEvaluationsTable.$inferSelect, extras?: {
     responseText: extras?.responseText ?? null,
     modelName: extras?.modelName ?? null,
     judgeModelName: extras?.judgeModelName ?? null,
+    // Audit trail: what was sent vs what provider confirmed
+    judgeModelVersion: e.judgeModelVersion ?? null,
+    confirmedModel: e.confirmedModel ?? null,
   };
 }
 
@@ -174,7 +177,7 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
         (question.metadata as Record<string, unknown>) ?? {}
       );
 
-      const { text } = await callLLM(
+      const { text, confirmedModel } = await callLLM(
         judgeModel.provider as LLMProvider,
         judgeModel.modelVersion,
         prompt
@@ -192,6 +195,8 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
         judgeModelId: resolvedJudgeModelId!,
         score: result.score,
         reasoning: result.reasoning,
+        judgeModelVersion: judgeModel.modelVersion,
+        confirmedModel: confirmedModel ?? judgeModel.modelVersion,
       });
 
       evaluated++;
