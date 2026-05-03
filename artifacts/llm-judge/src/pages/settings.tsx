@@ -54,11 +54,55 @@ const PROVIDER_MODELS: Record<string, string[]> = {
 
 // ── Types & meta ──────────────────────────────────────────────────────────────
 
+// ── API key format validation ─────────────────────────────────────────────────
+
+const API_KEY_PATTERNS: Record<string, { regex: RegExp; hint: string; placeholder: string }> = {
+  openai: {
+    regex: /^sk-(proj-[A-Za-z0-9_-]{50,}|[A-Za-z0-9]{48,})$/,
+    hint: 'Must start with "sk-proj-" (new) or "sk-" (legacy)',
+    placeholder: "sk-proj-… or sk-…",
+  },
+  gemini: {
+    regex: /^AIzaSy[A-Za-z0-9_-]{33,}$/,
+    hint: 'Must start with "AIzaSy"',
+    placeholder: "AIzaSy…",
+  },
+  deepseek: {
+    regex: /^sk-[a-zA-Z0-9]{20,}$/,
+    hint: 'Must start with "sk-" followed by alphanumeric characters',
+    placeholder: "sk-…",
+  },
+  claude: {
+    regex: /^sk-ant-[A-Za-z0-9_-]{90,}$/,
+    hint: 'Must start with "sk-ant-api03-" or "sk-ant-"',
+    placeholder: "sk-ant-api03-…",
+  },
+};
+
+function getKeyFormatStatus(value: string, providerKey: string): "empty" | "valid" | "invalid" {
+  if (!value || !value.trim()) return "empty";
+  const pattern = API_KEY_PATTERNS[providerKey];
+  if (!pattern) return "valid";
+  return pattern.regex.test(value.trim()) ? "valid" : "invalid";
+}
+
 const keysSchema = z.object({
-  openaiKey: z.string().optional(),
-  geminiKey: z.string().optional(),
-  deepseekKey: z.string().optional(),
-  claudeKey: z.string().optional(),
+  openaiKey: z.string().optional().refine(
+    (v) => !v || getKeyFormatStatus(v, "openai") !== "invalid",
+    { message: API_KEY_PATTERNS.openai.hint }
+  ),
+  geminiKey: z.string().optional().refine(
+    (v) => !v || getKeyFormatStatus(v, "gemini") !== "invalid",
+    { message: API_KEY_PATTERNS.gemini.hint }
+  ),
+  deepseekKey: z.string().optional().refine(
+    (v) => !v || getKeyFormatStatus(v, "deepseek") !== "invalid",
+    { message: API_KEY_PATTERNS.deepseek.hint }
+  ),
+  claudeKey: z.string().optional().refine(
+    (v) => !v || getKeyFormatStatus(v, "claude") !== "invalid",
+    { message: API_KEY_PATTERNS.claude.hint }
+  ),
 });
 type KeysFormValues = z.infer<typeof keysSchema>;
 
@@ -175,7 +219,10 @@ export default function Settings() {
   const keysForm = useForm<KeysFormValues>({
     resolver: zodResolver(keysSchema),
     defaultValues: { openaiKey: "", geminiKey: "", deepseekKey: "", claudeKey: "" },
+    mode: "onChange",
   });
+
+  const watchedKeys = keysForm.watch();
 
   async function handleLogout() {
     // Delete API keys from DB before logging out for security
@@ -574,11 +621,16 @@ export default function Settings() {
             <Form {...keysForm}>
               <form onSubmit={keysForm.handleSubmit(onSaveKeys)} className="space-y-4">
                 {[
-                  { name: "openaiKey" as const,  label: "OpenAI",             placeholder: "sk-…",      statusKey: "openai" as const },
-                  { name: "geminiKey" as const,   label: "Google Gemini",      placeholder: "AIza…",     statusKey: "gemini" as const },
-                  { name: "deepseekKey" as const, label: "DeepSeek",           placeholder: "sk-…",      statusKey: "deepseek" as const },
-                  { name: "claudeKey" as const,   label: "Anthropic (Claude)", placeholder: "sk-ant-…",  statusKey: "claude" as const },
-                ].map(({ name, label, placeholder, statusKey }) => (
+                  { name: "openaiKey" as const,  label: "OpenAI",             statusKey: "openai" as const },
+                  { name: "geminiKey" as const,   label: "Google Gemini",      statusKey: "gemini" as const },
+                  { name: "deepseekKey" as const, label: "DeepSeek",           statusKey: "deepseek" as const },
+                  { name: "claudeKey" as const,   label: "Anthropic (Claude)", statusKey: "claude" as const },
+                ].map(({ name, label, statusKey }) => {
+                  const pattern = API_KEY_PATTERNS[statusKey];
+                  const typedValue = watchedKeys[name] ?? "";
+                  const formatStatus = getKeyFormatStatus(typedValue, statusKey);
+                  const isConfigured = status?.[statusKey];
+                  return (
                   <FormField
                     key={name}
                     control={keysForm.control}
@@ -587,28 +639,59 @@ export default function Settings() {
                       <FormItem>
                         <div className="flex items-center justify-between mb-1.5">
                           <FormLabel className="text-sm font-medium">{label}</FormLabel>
-                          {status?.[statusKey] ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-                              <Check className="h-3 w-3" /> Configured
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full">
-                              <X className="h-3 w-3" /> Not set
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {/* Real-time format badge — only shown while typing */}
+                            {formatStatus === "valid" && typedValue && (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                                <Check className="h-3 w-3" /> Valid format
+                              </span>
+                            )}
+                            {formatStatus === "invalid" && typedValue && (
+                              <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                <AlertCircle className="h-3 w-3" /> Invalid format
+                              </span>
+                            )}
+                            {/* Saved status */}
+                            {isConfigured ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                                <Check className="h-3 w-3" /> Saved
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full">
+                                <X className="h-3 w-3" /> Not set
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <FormControl>
                           <Input
                             type="password"
-                            placeholder={status?.[statusKey] ? "••••••••••••••••••••" : placeholder}
+                            placeholder={isConfigured && !typedValue ? "••••••••••••••••••••" : pattern.placeholder}
+                            className={
+                              typedValue
+                                ? formatStatus === "valid"
+                                  ? "border-green-400 focus-visible:ring-green-300"
+                                  : formatStatus === "invalid"
+                                  ? "border-amber-400 focus-visible:ring-amber-300"
+                                  : ""
+                                : ""
+                            }
                             {...field}
                           />
                         </FormControl>
+                        {/* Hint shown when format is invalid */}
+                        {formatStatus === "invalid" && typedValue && (
+                          <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            {pattern.hint}
+                          </p>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                ))}
+                  );
+                })}
                 <Button type="submit" disabled={saveKeys.isPending} className="w-full mt-2">
                   {saveKeys.isPending ? "Saving…" : "Save API Keys"}
                 </Button>
