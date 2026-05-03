@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, modelResponsesTable, questionsTable, modelsTable, datasetsTable } from "@workspace/db";
 import {
@@ -10,6 +10,14 @@ import { callLLM, type LLMProvider } from "../lib/llm";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+function requireAuth(req: Request, res: Response): boolean {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
 
 function formatResponse(r: typeof modelResponsesTable.$inferSelect, extras?: {
   questionText?: string | null;
@@ -64,7 +72,9 @@ router.get("/responses", async (req, res): Promise<void> => {
   })));
 });
 
-router.post("/responses/generate", async (req, res): Promise<void> => {
+router.post("/responses/generate", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
   const parsed = GenerateResponsesBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -109,6 +119,7 @@ router.post("/responses/generate", async (req, res): Promise<void> => {
         modelId: model.id,
         responseText: text,
         inferenceTimeMs,
+        createdBy: uid,
       });
       generated++;
     } catch (e) {
@@ -121,7 +132,9 @@ router.post("/responses/generate", async (req, res): Promise<void> => {
   res.json({ generated, skipped, errors });
 });
 
-router.post("/responses/import", async (req, res): Promise<void> => {
+router.post("/responses/import", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
   const body = req.body as { responses?: unknown; datasetId?: number };
   if (!body || !Array.isArray(body.responses)) {
     res.status(400).json({ error: "Expected { responses: [...], datasetId? }" });
@@ -205,6 +218,7 @@ router.post("/responses/import", async (req, res): Promise<void> => {
           modelId: r.modelId,
           responseText: r.responseText,
           inferenceTimeMs: r.inferenceTimeMs ?? null,
+          createdBy: uid,
         })
         .onConflictDoNothing()
         .returning();
@@ -262,11 +276,22 @@ router.post("/responses/import", async (req, res): Promise<void> => {
   res.json({ imported, skipped, errors, suggestedDataset });
 });
 
-router.delete("/responses/:id", async (req, res): Promise<void> => {
+router.delete("/responses/:id", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const deleted = await db.delete(modelResponsesTable).where(eq(modelResponsesTable.id, id)).returning();
-  if (deleted.length === 0) { res.status(404).json({ error: "Response not found" }); return; }
+
+  const [row] = await db.select().from(modelResponsesTable).where(eq(modelResponsesTable.id, id));
+  if (!row) { res.status(404).json({ error: "Response not found" }); return; }
+
+  // Ownership check: if createdBy is set, only the creator can delete
+  if (row.createdBy !== null && row.createdBy !== uid) {
+    res.status(403).json({ error: "You can only delete your own responses" });
+    return;
+  }
+
+  await db.delete(modelResponsesTable).where(eq(modelResponsesTable.id, id));
   res.json({ deleted: true });
 });
 

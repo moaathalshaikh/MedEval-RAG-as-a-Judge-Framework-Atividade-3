@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { ChevronRight, Filter, Download, Trash2, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { currentUnifiedUser } from "@/components/auth-gate";
 
 function escapeCSV(val: unknown): string {
   const s = val == null ? "" : String(val);
@@ -223,6 +224,11 @@ export default function Results() {
   );
 }
 
+function canDelete(createdBy: string | null | undefined): boolean {
+  if (createdBy === null || createdBy === undefined) return true; // legacy rows: anyone can manage
+  return currentUnifiedUser?.id === createdBy;
+}
+
 function ResultRowComponent({
   row,
   onDeleteResponse,
@@ -324,30 +330,34 @@ function ResultRowComponent({
                       )}
                     </div>
 
-                    {/* Delete actions */}
-                    <div className="border-t border-border pt-4 space-y-2">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</p>
-                      {row.evaluationId && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
-                          onClick={(e) => { e.stopPropagation(); onClearEvaluation(row.evaluationId); }}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          Clear evaluation score
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:border-red-300"
-                        onClick={(e) => { e.stopPropagation(); onDeleteResponse(row.responseId); }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete response
-                      </Button>
-                    </div>
+                    {/* Delete actions — shown only to the row owner */}
+                    {(canDelete(row.responseCreatedBy) || canDelete(row.evaluationCreatedBy)) && (
+                      <div className="border-t border-border pt-4 space-y-2">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</p>
+                        {row.evaluationId && canDelete(row.evaluationCreatedBy) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
+                            onClick={(e) => { e.stopPropagation(); onClearEvaluation(row.evaluationId); }}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Clear evaluation score
+                          </Button>
+                        )}
+                        {canDelete(row.responseCreatedBy) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:border-red-300"
+                            onClick={(e) => { e.stopPropagation(); onDeleteResponse(row.responseId); }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete response
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </motion.div>

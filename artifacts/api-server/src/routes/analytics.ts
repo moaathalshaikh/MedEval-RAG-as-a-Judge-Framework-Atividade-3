@@ -111,11 +111,13 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
       modelName: modelsTable.modelName,
       responseText: modelResponsesTable.responseText,
       inferenceTimeMs: modelResponsesTable.inferenceTimeMs,
+      responseCreatedBy: modelResponsesTable.createdBy,
       evaluationId: judgeEvaluationsTable.id,
       score: judgeEvaluationsTable.score,
       reasoning: judgeEvaluationsTable.reasoning,
       judgeModelId: judgeEvaluationsTable.judgeModelId,
       evaluatedAt: judgeEvaluationsTable.evaluatedAt,
+      evaluationCreatedBy: judgeEvaluationsTable.createdBy,
     })
     .from(questionsTable)
     .leftJoin(datasetsTable, eq(datasetsTable.id, questionsTable.datasetId))
@@ -139,11 +141,13 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
     modelName: r.modelName ?? "",
     responseText: r.responseText ?? "",
     inferenceTimeMs: r.inferenceTimeMs ?? null,
+    responseCreatedBy: r.responseCreatedBy ?? null,
     evaluationId: r.evaluationId ?? null,
     score: r.score ?? null,
     reasoning: r.reasoning ?? null,
     judgeModelName: r.judgeModelId ? (modelMap.get(r.judgeModelId) ?? null) : null,
     evaluatedAt: r.evaluatedAt?.toISOString() ?? null,
+    evaluationCreatedBy: r.evaluationCreatedBy ?? null,
   })));
 });
 

@@ -227,6 +227,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
         reasoning: result.reasoning,
         judgeModelVersion: resolvedModelVersion,
         confirmedModel: confirmedModel ?? resolvedModelVersion,
+        createdBy: uid,
       });
 
       evaluated++;
@@ -242,10 +243,20 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
 
 router.delete("/evaluations/:id", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
   const id = parseInt(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  const deleted = await db.delete(judgeEvaluationsTable).where(eq(judgeEvaluationsTable.id, id)).returning();
-  if (deleted.length === 0) { res.status(404).json({ error: "Evaluation not found" }); return; }
+
+  const [row] = await db.select().from(judgeEvaluationsTable).where(eq(judgeEvaluationsTable.id, id));
+  if (!row) { res.status(404).json({ error: "Evaluation not found" }); return; }
+
+  // Ownership check: if createdBy is set, only the creator can clear it
+  if (row.createdBy !== null && row.createdBy !== uid) {
+    res.status(403).json({ error: "You can only clear evaluations you ran" });
+    return;
+  }
+
+  await db.delete(judgeEvaluationsTable).where(eq(judgeEvaluationsTable.id, id));
   res.json({ deleted: true });
 });
 

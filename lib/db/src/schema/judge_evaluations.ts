@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { modelResponsesTable } from "./model_responses";
 import { judgeModelsTable } from "./judge_models";
+import { usersTable } from "./auth";
 
 export const judgeEvaluationsTable = pgTable("judge_evaluations", {
   id: serial("id_evaluation").primaryKey(),
@@ -13,6 +14,7 @@ export const judgeEvaluationsTable = pgTable("judge_evaluations", {
   evaluatedAt: timestamp("evaluated_at", { withTimezone: true }).notNull().defaultNow(),
   judgeModelVersion: text("judge_model_version"),
   confirmedModel: text("confirmed_model"),
+  createdBy: text("created_by").references(() => usersTable.id, { onDelete: "set null" }),
 });
 
 export const insertJudgeEvaluationSchema = createInsertSchema(judgeEvaluationsTable).omit({ id: true, evaluatedAt: true });
