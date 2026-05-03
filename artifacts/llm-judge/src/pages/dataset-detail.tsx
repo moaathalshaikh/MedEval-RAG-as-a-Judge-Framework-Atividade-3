@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye, AlertTriangle, DatabaseZap } from "lucide-react";
+import { Trash2, ChevronLeft, Plus, Upload, FileJson, FileText, CheckCircle2, X, Eye, AlertTriangle, DatabaseZap, Lock } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -22,6 +22,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
+import { currentUnifiedUser } from "@/components/auth-gate";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const questionSchema = z.object({
   questionText: z.string().min(1, "Question text is required"),
@@ -130,6 +132,11 @@ export default function DatasetDetail() {
   const deleteQuestion = useDeleteQuestion();
   const deleteDataset = useDeleteDataset();
   const uploadDataset = useUploadDataset();
+
+  const currentUserId = currentUnifiedUser?.id ?? null;
+  const isOwner = !!(currentUserId && dataset && (
+    !dataset.createdById || dataset.createdById === currentUserId
+  ));
 
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; duplicates?: number; errors: string[] } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
@@ -267,14 +274,29 @@ export default function DatasetDetail() {
           <Badge variant="secondary">{dataset.domain}</Badge>
           <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">{dataset.questionCount} questions</Badge>
           <div className="ml-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-400"
-              onClick={() => setShowDeleteDataset(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-1.5" /> Delete Dataset
-            </Button>
+            <TooltipProvider>
+              {isOwner ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-400"
+                  onClick={() => setShowDeleteDataset(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" /> Delete Dataset
+                </Button>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-muted-foreground/50 border border-border cursor-not-allowed select-none">
+                      <Lock className="h-3.5 w-3.5" /> Delete Dataset
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Only the owner can delete this dataset</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </TooltipProvider>
           </div>
         </div>
       </div>
@@ -532,17 +554,32 @@ export default function DatasetDetail() {
                       <p className="line-clamp-2">{q.goldAnswer}</p>
                     </TableCell>
                     <TableCell className="text-right pr-2">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon"
-                          onClick={() => setViewQ({ questionText: q.questionText, goldAnswer: q.goldAnswer, questionType: q.questionType })}
-                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(q.id)} disabled={deleteQuestion.isPending}
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      <TooltipProvider>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon"
+                            onClick={() => setViewQ({ questionText: q.questionText, goldAnswer: q.goldAnswer, questionType: q.questionType })}
+                            className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          {isOwner ? (
+                            <Button variant="ghost" size="icon" onClick={() => handleDelete(q.id)} disabled={deleteQuestion.isPending}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground/40 cursor-not-allowed">
+                                  <Lock className="h-3.5 w-3.5" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="left">
+                                <p>Only the owner can delete questions</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        </div>
+                      </TooltipProvider>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,12 +1,13 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, questionsTable } from "@workspace/db";
+import { db, questionsTable, datasetsTable } from "@workspace/db";
 import {
   CreateQuestionBody,
   GetQuestionParams,
   DeleteQuestionParams,
   ListQuestionsQueryParams,
 } from "@workspace/api-zod";
+import { requireAuth } from "../middleware/auth-gate";
 
 const router: IRouter = Router();
 
@@ -86,17 +87,29 @@ router.get("/questions/:id", async (req, res): Promise<void> => {
   });
 });
 
-router.delete("/questions/:id", async (req, res): Promise<void> => {
+router.delete("/questions/:id", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
   const params = DeleteQuestionParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [q] = await db.delete(questionsTable).where(eq(questionsTable.id, params.data.id)).returning();
+
+  const [q] = await db.select().from(questionsTable).where(eq(questionsTable.id, params.data.id));
   if (!q) {
     res.status(404).json({ error: "Question not found" });
     return;
   }
+
+  const [dataset] = await db.select().from(datasetsTable).where(eq(datasetsTable.id, q.datasetId));
+  if (dataset?.createdBy && dataset.createdBy !== uid) {
+    res.status(403).json({ error: "You can only delete questions from your own datasets" });
+    return;
+  }
+
+  await db.delete(questionsTable).where(eq(questionsTable.id, params.data.id));
   res.sendStatus(204);
 });
 

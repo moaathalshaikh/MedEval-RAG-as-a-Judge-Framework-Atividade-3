@@ -121,6 +121,7 @@ router.get("/datasets/:id", async (req, res): Promise<void> => {
       domain: datasetsTable.domain,
       datasetType: datasetsTable.datasetType,
       createdAt: datasetsTable.createdAt,
+      createdBy: datasetsTable.createdBy,
       questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)`,
       creatorEmail: usersTable.email,
       creatorFirstName: usersTable.firstName,
@@ -139,6 +140,7 @@ router.get("/datasets/:id", async (req, res): Promise<void> => {
     datasetType: row.datasetType,
     questionCount: row.questionCount ?? 0,
     createdAt: row.createdAt.toISOString(),
+    createdById: row.createdBy ?? null,
     createdByName: displayName({ email: row.creatorEmail ?? null, firstName: row.creatorFirstName ?? null, lastName: row.creatorLastName ?? null }),
   });
 });

@@ -121,6 +121,7 @@ export const GetDatasetResponse = zod.object({
   datasetType: zod.enum(["OPEN_ENDED", "MCQ"]),
   questionCount: zod.number(),
   createdAt: zod.string(),
+  createdById: zod.string().nullish(),
   createdByName: zod.string().nullish(),
 });
 
