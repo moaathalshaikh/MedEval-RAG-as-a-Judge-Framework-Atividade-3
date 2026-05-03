@@ -15,7 +15,7 @@
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
-- **Auth**: Replit Auth (OIDC + PKCE, cookie-based sessions in PostgreSQL)
+- **Auth**: Dual auth — Replit Auth (OIDC + PKCE) + Firebase Auth (Google + Email/Password); both share cookie-based sessions in PostgreSQL
 - **Build**: esbuild (CJS bundle)
 - **Charts**: Recharts
 
@@ -31,7 +31,7 @@
 
 ## Database Schema
 
-- `users` — Replit Auth users (id, email, firstName, lastName, profileImageUrl)
+- `users` — Auth users; Replit users use their Replit ID, Firebase users use `fb_<uid>` prefix (id, email, firstName, lastName, profileImageUrl)
 - `sessions` — Server-side sessions for Replit Auth (sid, sess JSONB, expire)
 - `models` — AI model registry
 - `datasets` — Question datasets (Medical, Legal, General domains)
@@ -49,16 +49,31 @@
 
 ## Authentication Flow
 
-1. Frontend detects unauthenticated state → shows `AuthGate` login screen
-2. User clicks "Log in" → redirected to `/api/login?returnTo=<base>`
-3. Replit OIDC handles auth → callback to `/api/callback`
-4. Session created in `sessions` table, cookie `sid` set
-5. All settings/evaluations routes require `req.isAuthenticated()` (401 if not)
-6. API keys stored per `user_id` → completely isolated between users
+### Replit Auth
+1. User clicks "Log in with Replit" → redirected to `/api/login?returnTo=<base>`
+2. Replit OIDC (PKCE) handles auth → callback to `/api/callback`
+3. Session created in `sessions` table, cookie `sid` set
+
+### Firebase Auth (Google / Email+Password)
+1. User clicks "Continue with Google" or "Sign in with Email" on login page
+2. Firebase SDK authenticates client-side (popup for Google, inline for email)
+3. Frontend gets Firebase ID token → POST `/api/auth/firebase-session`
+4. Server verifies token via `firebase-admin`, upserts user with `fb_` prefix, creates session cookie
+5. `onAuthStateChanged` listener in `AuthGate` detects user → exchanges token → sets `firebaseSessionOk`
+6. Logout: `firebaseSignOut()` + POST `/api/auth/firebase-logout` → session cleared
+
+### Common
+- All protected routes require `req.isAuthenticated()` (401 if not)
+- API keys stored per `user_id` → completely isolated between users
+- Email uniqueness: if Firebase user shares email with existing Replit account, email stored as null to avoid constraint conflict
+- `AuthGate` component (`artifacts/llm-judge/src/components/auth-gate.tsx`) handles both providers; exposes `currentUnifiedUser` module variable
+- Google sign-in uses `signInWithPopup`; if run inside an iframe (Replit workspace preview) and popup is blocked, user is guided to open the app in a new tab
+- Firebase project: **medevaljudge** — config stored as `VITE_FIREBASE_*` env vars
+- Firebase authorized domains must include the Replit dev domain AND the deployed `.replit.app` domain
 
 ## Key Features
 
-- **Authentication**: Replit Auth with per-user isolated workspaces
+- **Authentication**: Dual auth — Replit Auth + Firebase (Google + Email/Password) with per-user isolated workspaces
 - **Dynamic Model Lists**: `/api/settings/available-models?provider=OpenAI` fetches real models from each provider using the user's API key
 - **Data Ingestion**: Upload CSV/JSONL files to create question datasets
 - **LLM-as-a-Judge**: Judge any response set using user's configured judge LLM
@@ -106,9 +121,11 @@ Provider APIs called by the backend using the authenticated user's key:
 
 ### Auth (no auth required)
 - `GET /api/auth/user` — current auth state (`{user: AuthUser | null}`)
-- `GET /api/login` — OIDC redirect (web login)
-- `GET /api/callback` — OIDC callback
+- `GET /api/login` — Replit OIDC redirect
+- `GET /api/callback` — Replit OIDC callback
 - `GET /api/logout` — clear session + OIDC end-session redirect
+- `POST /api/auth/firebase-session` — exchange Firebase ID token for server session cookie
+- `POST /api/auth/firebase-logout` — clear Firebase-originated server session
 
 ### Settings (auth required)
 - `GET/POST /api/settings/api-keys` — per-user API key management
