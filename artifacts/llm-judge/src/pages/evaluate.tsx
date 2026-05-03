@@ -13,15 +13,22 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 
-interface JudgeModelStatus {
-  modelId: number | null;
-  modelName: string | null;
+interface JudgeModelConfig {
+  judgeModelId: number | null;
+  displayName: string | null;
   provider: string | null;
-  version: string | null;
+  modelVersion: string | null;
 }
 
+const PROVIDER_LABEL: Record<string, string> = {
+  OpenAI:   "OpenAI",
+  Gemini:   "Google",
+  Claude:   "Anthropic",
+  DeepSeek: "DeepSeek",
+};
+
 function useJudgeModel() {
-  return useQuery<JudgeModelStatus>({
+  return useQuery<JudgeModelConfig>({
     queryKey: ["settings", "judge-model"],
     queryFn: () => fetch("/api/settings/judge-model").then((r) => r.json()),
   });
@@ -40,12 +47,12 @@ export default function Evaluate() {
   const [result, setResult] = useState<{ evaluated: number; skipped: number; errors: string[] } | null>(null);
 
   function handleEvaluate() {
-    if (!selectedDatasetId || !judgeModel?.modelId) return;
+    if (!selectedDatasetId || !judgeModel?.judgeModelId) return;
     setResult(null);
     runJudge.mutate(
       {
         data: {
-          judgeModelId: judgeModel.modelId,
+          judgeModelId: judgeModel.judgeModelId,
           datasetId: parseInt(selectedDatasetId),
           modelId: selectedModelId && selectedModelId !== "all" ? parseInt(selectedModelId) : undefined,
         },
@@ -63,7 +70,7 @@ export default function Evaluate() {
     );
   }
 
-  const isReady = !!(judgeModel?.modelId) && !!selectedDatasetId;
+  const isReady = !!(judgeModel?.judgeModelId) && !!selectedDatasetId;
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
@@ -82,11 +89,13 @@ export default function Evaluate() {
             <CardContent>
               {isLoadingJudge ? (
                 <Skeleton className="h-14 w-full" />
-              ) : judgeModel?.modelId ? (
+              ) : judgeModel?.judgeModelId ? (
                 <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div>
-                    <p className="font-semibold text-green-800">{judgeModel.modelName}</p>
-                    <p className="text-xs text-green-600 mt-0.5">{judgeModel.provider} · {judgeModel.version}</p>
+                    <p className="font-semibold text-green-800">{judgeModel.displayName}</p>
+                    <p className="text-xs text-green-600 mt-0.5">
+                      {PROVIDER_LABEL[judgeModel.provider ?? ""] ?? judgeModel.provider} · {judgeModel.modelVersion}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge className="bg-green-100 text-green-700 border-0">Active</Badge>
@@ -173,7 +182,7 @@ export default function Evaluate() {
 
               {!isReady && !runJudge.isPending && (
                 <p className="text-xs text-muted-foreground text-center">
-                  {!judgeModel?.modelId ? "Configure a judge model to continue" : "Select a dataset to continue"}
+                  {!judgeModel?.judgeModelId ? "Configure a judge model to continue" : "Select a dataset to continue"}
                 </p>
               )}
 

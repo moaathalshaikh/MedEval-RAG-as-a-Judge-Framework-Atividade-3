@@ -419,6 +419,7 @@ export const GetSpearmanCorrelationResponse = zod.object({
  */
 export const GetApiKeyStatusResponse = zod.object({
   openai: zod.boolean(),
+  gemini: zod.boolean(),
   deepseek: zod.boolean(),
   claude: zod.boolean(),
 });
@@ -428,12 +429,25 @@ export const GetApiKeyStatusResponse = zod.object({
  */
 export const SaveApiKeysBody = zod.object({
   openaiKey: zod.string().nullish(),
+  geminiKey: zod.string().nullish(),
   deepseekKey: zod.string().nullish(),
   claudeKey: zod.string().nullish(),
 });
 
 export const SaveApiKeysResponse = zod.object({
   openai: zod.boolean(),
+  gemini: zod.boolean(),
   deepseek: zod.boolean(),
   claude: zod.boolean(),
 });
+
+/**
+ * @summary List available judge LLM models
+ */
+export const ListJudgeModelsResponseItem = zod.object({
+  id: zod.number(),
+  provider: zod.string(),
+  displayName: zod.string(),
+  modelVersion: zod.string(),
+});
+export const ListJudgeModelsResponse = zod.array(ListJudgeModelsResponseItem);

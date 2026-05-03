@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable } from "@workspace/db";
+import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable, judgeModelsTable, settingsTable } from "@workspace/db";
 import {
   RunJudgeBody,
   GetEvaluationParams,
@@ -10,6 +10,8 @@ import { callLLM, buildJudgePrompt, parseJudgeResponse, type LLMProvider } from 
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+const JUDGE_MODEL_KEY = "judge_model_id";
 
 function formatEval(e: typeof judgeEvaluationsTable.$inferSelect, extras?: {
   questionText?: string | null;
@@ -42,16 +44,12 @@ router.get("/evaluations", async (req, res): Promise<void> => {
   if (parsed.data.responseId != null) conditions.push(eq(judgeEvaluationsTable.responseId, parsed.data.responseId));
   if (parsed.data.judgeModelId != null) conditions.push(eq(judgeEvaluationsTable.judgeModelId, parsed.data.judgeModelId));
 
-  const judgeModels = modelsTable;
-  const respModels = { ...modelsTable };
-
   const rows = await db
     .select({
       evaluation: judgeEvaluationsTable,
       questionText: questionsTable.questionText,
       responseText: modelResponsesTable.responseText,
       modelName: modelsTable.modelName,
-      judgeModelId: judgeEvaluationsTable.judgeModelId,
     })
     .from(judgeEvaluationsTable)
     .leftJoin(modelResponsesTable, eq(modelResponsesTable.id, judgeEvaluationsTable.responseId))
@@ -60,15 +58,14 @@ router.get("/evaluations", async (req, res): Promise<void> => {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(judgeEvaluationsTable.evaluatedAt);
 
-  // Get judge names separately for simplicity
-  const allModels = await db.select().from(judgeModels);
-  const modelMap = new Map(allModels.map((m) => [m.id, m.modelName]));
+  const allJudgeModels = await db.select().from(judgeModelsTable);
+  const judgeMap = new Map(allJudgeModels.map((m) => [m.id, m.displayName]));
 
   res.json(rows.map((row) => formatEval(row.evaluation, {
     questionText: row.questionText,
     responseText: row.responseText,
     modelName: row.modelName,
-    judgeModelName: modelMap.get(row.evaluation.judgeModelId) ?? null,
+    judgeModelName: judgeMap.get(row.evaluation.judgeModelId) ?? null,
   })));
 });
 
@@ -81,8 +78,19 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
 
   const { judgeModelId, responseIds, datasetId, modelId } = parsed.data;
 
-  // Get judge model
-  const [judgeModel] = await db.select().from(modelsTable).where(eq(modelsTable.id, judgeModelId));
+  // Resolve judge model: use provided judgeModelId or fall back to saved setting
+  let resolvedJudgeModelId = judgeModelId;
+  if (!resolvedJudgeModelId) {
+    const [setting] = await db.select().from(settingsTable).where(eq(settingsTable.key, JUDGE_MODEL_KEY));
+    if (setting?.value) resolvedJudgeModelId = parseInt(setting.value);
+  }
+
+  if (!resolvedJudgeModelId) {
+    res.status(400).json({ error: "No judge model configured. Please select one in Settings." });
+    return;
+  }
+
+  const [judgeModel] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, resolvedJudgeModelId));
   if (!judgeModel) {
     res.status(404).json({ error: "Judge model not found" });
     return;
@@ -110,23 +118,16 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
       if (row) responseRows.push(row as typeof responseRows[0]);
     }
   } else {
-    // Build conditions for bulk evaluation
     const conditions = [];
     if (datasetId != null) {
-      // Get all responses for questions in the dataset
       const allQ = await db.select().from(questionsTable).where(eq(questionsTable.datasetId, datasetId));
       const qIds = allQ.map((q) => q.id);
       if (qIds.length === 0) {
         res.json({ evaluated: 0, skipped: 0, errors: ["No questions in dataset"] });
         return;
       }
-      // filter responses by question IDs
       const allResponses = await db
-        .select({
-          response: modelResponsesTable,
-          question: questionsTable,
-          model: modelsTable,
-        })
+        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
         .from(modelResponsesTable)
         .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
         .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
@@ -137,11 +138,7 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
       ) as typeof responseRows;
     } else if (modelId != null) {
       const allResponses = await db
-        .select({
-          response: modelResponsesTable,
-          question: questionsTable,
-          model: modelsTable,
-        })
+        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
         .from(modelResponsesTable)
         .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
         .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId))
@@ -149,11 +146,7 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
       responseRows = allResponses as typeof responseRows;
     } else {
       const allResponses = await db
-        .select({
-          response: modelResponsesTable,
-          question: questionsTable,
-          model: modelsTable,
-        })
+        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
         .from(modelResponsesTable)
         .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
         .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
@@ -183,7 +176,7 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
 
       const { text } = await callLLM(
         judgeModel.provider as LLMProvider,
-        judgeModel.version,
+        judgeModel.modelVersion,
         prompt
       );
 
@@ -196,7 +189,7 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
 
       await db.insert(judgeEvaluationsTable).values({
         responseId: response.id,
-        judgeModelId,
+        judgeModelId: resolvedJudgeModelId!,
         score: result.score,
         reasoning: result.reasoning,
       });
@@ -237,12 +230,12 @@ router.get("/evaluations/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const [judgeModel] = await db.select().from(modelsTable).where(eq(modelsTable.id, row.evaluation.judgeModelId));
+  const [judgeModel] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, row.evaluation.judgeModelId));
   res.json(formatEval(row.evaluation, {
     questionText: row.questionText,
     responseText: row.responseText,
     modelName: row.modelName,
-    judgeModelName: judgeModel?.modelName ?? null,
+    judgeModelName: judgeModel?.displayName ?? null,
   }));
 });
 
