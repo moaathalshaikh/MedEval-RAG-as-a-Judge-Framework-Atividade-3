@@ -116,7 +116,7 @@ export async function sendPasswordReset(email: string): Promise<void> {
   const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
   await sendPasswordResetEmail(auth, email, {
     url: `${window.location.origin}${base}/auth/action`,
-    handleCodeInApp: false,
+    handleCodeInApp: true,
   });
 }
 
