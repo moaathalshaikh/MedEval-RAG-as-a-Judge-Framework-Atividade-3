@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@workspace/replit-auth-web";
-import { auth, onAuthStateChanged, type User as FirebaseUser } from "@/lib/firebase";
+import { auth, onAuthStateChanged, handleGoogleRedirectResult, type User as FirebaseUser } from "@/lib/firebase";
 import { LoginPage } from "./login-page";
 
 interface AuthGateProps {
@@ -22,30 +22,39 @@ export interface UnifiedUser {
 // Shared context so children can read the user
 export let currentUnifiedUser: UnifiedUser | null = null;
 
+async function exchangeFirebaseToken(fbUser: FirebaseUser): Promise<boolean> {
+  try {
+    const token = await fbUser.getIdToken();
+    const res = await fetch("/api/auth/firebase-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ idToken: token }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthGate({ children }: AuthGateProps) {
   const { isLoading: replitLoading, isAuthenticated: replitAuthed, user: replitUser } = useAuth();
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [firebaseLoading, setFirebaseLoading] = useState(true);
   const [firebaseSessionOk, setFirebaseSessionOk] = useState(false);
 
-  // Listen to Firebase auth state
+  // On mount: handle Google redirect result (user returning from OAuth)
+  useEffect(() => {
+    handleGoogleRedirectResult().catch(() => null);
+  }, []);
+
+  // Listen to Firebase auth state changes
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
-        // Exchange Firebase ID token for a server session
-        try {
-          const token = await fbUser.getIdToken();
-          const res = await fetch("/api/auth/firebase-session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ idToken: token }),
-          });
-          setFirebaseSessionOk(res.ok);
-        } catch {
-          setFirebaseSessionOk(false);
-        }
+        const ok = await exchangeFirebaseToken(fbUser);
+        setFirebaseSessionOk(ok);
       } else {
         setFirebaseSessionOk(false);
       }
@@ -57,7 +66,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const isLoading = replitLoading || firebaseLoading;
   const isAuthenticated = replitAuthed || firebaseSessionOk;
 
-  // Build unified user
+  // Build unified user object
   if (replitAuthed && replitUser) {
     currentUnifiedUser = {
       id: replitUser.id,

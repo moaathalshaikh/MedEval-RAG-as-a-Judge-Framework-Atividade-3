@@ -29,13 +29,14 @@ export function LoginPage() {
     setLoading(true);
     setError(null);
     try {
+      // signInWithGoogle uses redirect — page will navigate to Google then return
       await signInWithGoogle();
-      // AuthGate listener will pick up the new Firebase user automatically
+      // page navigates away here; no further code runs
     } catch (e: unknown) {
       setError(getFirebaseError(e));
-    } finally {
       setLoading(false);
     }
+    // intentionally no finally — loading stays true while redirect happens
   }
 
   async function handleEmailSignIn(e: React.FormEvent) {
