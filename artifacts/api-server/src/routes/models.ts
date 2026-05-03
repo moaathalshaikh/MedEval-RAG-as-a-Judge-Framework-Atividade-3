@@ -31,6 +31,7 @@ function formatModel(m: typeof modelsTable.$inferSelect, creatorName: string | n
     id: m.id,
     modelName: m.modelName,
     modelSize: m.modelSize,
+    modelType: m.modelType as "LLM" | "SLM",
     notes: m.notes ?? null,
     createdAt: m.createdAt.toISOString(),
     createdById: m.createdBy ?? null,
@@ -69,6 +70,7 @@ router.post("/models", async (req: Request, res: Response): Promise<void> => {
   const [model] = await db.insert(modelsTable).values({
     modelName: parsed.data.modelName,
     modelSize: parsed.data.modelSize,
+    modelType: parsed.data.modelType,
     notes: parsed.data.notes ?? null,
     createdBy: uid,
   }).returning();

@@ -22,6 +22,7 @@ export const ListModelsResponseItem = zod.object({
   id: zod.number(),
   modelName: zod.string(),
   modelSize: zod.string(),
+  modelType: zod.enum(["LLM", "SLM"]),
   notes: zod.string().nullish(),
   createdAt: zod.string(),
   createdById: zod.string().nullish(),
@@ -35,6 +36,7 @@ export const ListModelsResponse = zod.array(ListModelsResponseItem);
 export const CreateModelBody = zod.object({
   modelName: zod.string(),
   modelSize: zod.string(),
+  modelType: zod.enum(["LLM", "SLM"]),
   notes: zod.string().nullish(),
 });
 
@@ -49,6 +51,7 @@ export const GetModelResponse = zod.object({
   id: zod.number(),
   modelName: zod.string(),
   modelSize: zod.string(),
+  modelType: zod.enum(["LLM", "SLM"]),
   notes: zod.string().nullish(),
   createdAt: zod.string(),
   createdByName: zod.string().nullish(),
@@ -64,6 +67,7 @@ export const UpdateModelParams = zod.object({
 export const UpdateModelBody = zod.object({
   modelName: zod.string().nullish(),
   modelSize: zod.string().nullish(),
+  modelType: zod.enum(["LLM", "SLM"]).nullish(),
   notes: zod.string().nullish(),
 });
 
@@ -71,6 +75,7 @@ export const UpdateModelResponse = zod.object({
   id: zod.number(),
   modelName: zod.string(),
   modelSize: zod.string(),
+  modelType: zod.enum(["LLM", "SLM"]),
   notes: zod.string().nullish(),
   createdAt: zod.string(),
   createdByName: zod.string().nullish(),

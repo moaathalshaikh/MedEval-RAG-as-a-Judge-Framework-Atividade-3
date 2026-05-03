@@ -13,10 +13,18 @@ export interface ErrorResponse {
   error: string;
 }
 
+export type ModelType = (typeof ModelType)[keyof typeof ModelType];
+
+export const ModelType = {
+  LLM: "LLM",
+  SLM: "SLM",
+} as const;
+
 export interface Model {
   id: number;
   modelName: string;
   modelSize: string;
+  modelType: ModelType;
   /** @nullable */
   notes?: string | null;
   createdAt: string;
@@ -29,6 +37,7 @@ export interface Model {
 export interface CreateModelBody {
   modelName: string;
   modelSize: string;
+  modelType: ModelType;
   /** @nullable */
   notes?: string | null;
 }
@@ -38,6 +47,8 @@ export interface UpdateModelBody {
   modelName?: string | null;
   /** @nullable */
   modelSize?: string | null;
+  /** @nullable */
+  modelType?: ModelType | null;
   /** @nullable */
   notes?: string | null;
 }

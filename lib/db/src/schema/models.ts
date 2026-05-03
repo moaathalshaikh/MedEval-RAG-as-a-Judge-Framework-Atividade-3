@@ -7,6 +7,7 @@ export const modelsTable = pgTable("models", {
   id: serial("id_model").primaryKey(),
   modelName: text("model_name").notNull(),
   modelSize: text("model_size").notNull(),
+  modelType: text("model_type").notNull().default("SLM"),
   notes: text("notes"),
   createdBy: text("created_by").references(() => usersTable.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

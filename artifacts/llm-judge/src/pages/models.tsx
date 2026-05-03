@@ -1,9 +1,10 @@
-import { useListModels, useCreateModel, useDeleteModel, getListModelsQueryKey } from "@workspace/api-client-react";
+import { useListModels, useCreateModel, useDeleteModel, getListModelsQueryKey, ModelType } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trash2, Plus, Lock } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -19,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 const modelSchema = z.object({
   modelName: z.string().min(1, "Model name is required"),
   modelSize: z.string().min(1, "Model size is required"),
+  modelType: z.enum(["LLM", "SLM"]),
   notes: z.string().optional(),
 });
 
@@ -34,12 +36,12 @@ export default function Models() {
 
   const form = useForm<ModelFormValues>({
     resolver: zodResolver(modelSchema),
-    defaultValues: { modelName: "", modelSize: "", notes: "" },
+    defaultValues: { modelName: "", modelSize: "", modelType: "SLM", notes: "" },
   });
 
   function onSubmit(data: ModelFormValues) {
     createModel.mutate(
-      { data: { modelName: data.modelName, modelSize: data.modelSize, notes: data.notes || null } },
+      { data: { modelName: data.modelName, modelSize: data.modelSize, modelType: data.modelType as "LLM" | "SLM", notes: data.notes || null } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListModelsQueryKey() });
@@ -108,6 +110,28 @@ export default function Models() {
 
                 <FormField
                   control={form.control}
+                  name="modelType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Model Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value={ModelType.SLM}>SLM — Small Language Model</SelectItem>
+                          <SelectItem value={ModelType.LLM}>LLM — Large Language Model</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
                   name="notes"
                   render={({ field }) => (
                     <FormItem>
@@ -142,6 +166,7 @@ export default function Models() {
                     <TableHead className="w-12 pl-4">#</TableHead>
                     <TableHead>Model Name</TableHead>
                     <TableHead>Size</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead>Notes</TableHead>
                     <TableHead>Created By</TableHead>
                     <TableHead className="text-right pr-4">Actions</TableHead>
@@ -157,6 +182,15 @@ export default function Models() {
                       <TableCell>
                         <span className="inline-block bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
                           {model.modelSize}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          model.modelType === "LLM"
+                            ? "bg-purple-100 text-purple-700"
+                            : "bg-green-100 text-green-700"
+                        }`}>
+                          {model.modelType}
                         </span>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{model.notes || "—"}</TableCell>
@@ -193,7 +227,7 @@ export default function Models() {
                   ))}
                   {(!models || models.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-16 text-sm text-muted-foreground">
                         No models registered yet. Add your first model.
                       </TableCell>
                     </TableRow>
