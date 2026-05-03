@@ -319,6 +319,14 @@ export default function Settings() {
   const activeMeta = activeProvider ? PROVIDER_META[activeProvider.provider] : null;
   const activeHasKey = activeMeta && status ? !!status[activeMeta.statusKey] : false;
 
+  // When editing, derive display info from selected provider
+  const isEditingMode = selectedProviderId !== null;
+  const previewMeta = isEditingMode ? selectedMeta : activeMeta;
+  const previewModelVersion = isEditingMode ? modelVersion : judgeModel?.modelVersion;
+  const previewHasKey = isEditingMode
+    ? (selectedMeta && status ? !!status[selectedMeta.statusKey] : false)
+    : activeHasKey;
+
   const displayName = user?.displayName ?? null;
   const initials = displayName
     ? displayName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
@@ -378,35 +386,91 @@ export default function Settings() {
           <p className="text-xs text-muted-foreground">The large LLM that generates reference answers and evaluates responses</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Active model status */}
+          {/* Active / configuring model status */}
           {isLoadingJudge || isLoadingKeys ? (
             <Skeleton className="h-14 w-full" />
-          ) : judgeModel?.judgeModelId && judgeModel.modelVersion ? (
-            <div className={`flex items-center justify-between p-3 rounded-lg border ${
-              activeHasKey
-                ? `${activeMeta?.bg} ${activeMeta?.border}`
-                : "bg-red-50 border-red-300"
-            }`}>
-              <div>
-                <p className={`font-semibold text-sm ${activeHasKey ? activeMeta?.text : "text-red-700"}`}>
-                  {judgeModel.modelVersion}
-                </p>
-                <p className={`text-xs mt-0.5 opacity-70 ${activeHasKey ? activeMeta?.text : "text-red-600"}`}>
-                  {activeMeta?.label}
-                </p>
-              </div>
-              {activeHasKey ? (
-                <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${activeMeta?.bg} ${activeMeta?.text} ${activeMeta?.border}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${activeMeta?.dot}`} />
-                  Active
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-red-50 border-red-300 text-red-600">
-                  <AlertCircle className="h-3 w-3" />
-                  No API key
-                </span>
-              )}
-            </div>
+          ) : (previewMeta && previewModelVersion) || isEditingMode ? (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={isEditingMode ? `editing-${selectedProviderId}` : `saved-${judgeModel?.judgeModelId}`}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className={`flex items-center justify-between p-3 rounded-lg border ${
+                  isEditingMode
+                    ? testStatus === "success"
+                      ? `${previewMeta?.bg} ${previewMeta?.border}`
+                      : testStatus === "error"
+                      ? "bg-red-50 border-red-300"
+                      : `border-dashed ${previewMeta?.border ?? "border-border"} bg-muted/30`
+                    : previewHasKey
+                    ? `${previewMeta?.bg} ${previewMeta?.border}`
+                    : "bg-red-50 border-red-300"
+                }`}
+              >
+                <div>
+                  <p className={`font-semibold text-sm ${
+                    isEditingMode
+                      ? testStatus === "success"
+                        ? previewMeta?.text
+                        : testStatus === "error"
+                        ? "text-red-700"
+                        : "text-muted-foreground"
+                      : previewHasKey ? previewMeta?.text : "text-red-700"
+                  }`}>
+                    {previewModelVersion || "— select a model —"}
+                  </p>
+                  <p className={`text-xs mt-0.5 opacity-70 ${
+                    isEditingMode
+                      ? testStatus === "error" ? "text-red-600" : previewMeta?.text ?? "text-muted-foreground"
+                      : previewHasKey ? previewMeta?.text : "text-red-600"
+                  }`}>
+                    {previewMeta?.label ?? "—"}
+                    {isEditingMode && <span className="ml-1 opacity-70">(configuring…)</span>}
+                  </p>
+                </div>
+
+                {/* Badge */}
+                {isEditingMode ? (
+                  testStatus === "success" ? (
+                    <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${previewMeta?.bg} ${previewMeta?.text} ${previewMeta?.border}`}>
+                      <Wifi className="h-3 w-3" />
+                      Connected
+                    </span>
+                  ) : testStatus === "error" ? (
+                    <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-red-50 border-red-300 text-red-600">
+                      <WifiOff className="h-3 w-3" />
+                      Failed
+                    </span>
+                  ) : testStatus === "testing" ? (
+                    <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-muted border-border text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Testing…
+                    </span>
+                  ) : !previewHasKey ? (
+                    <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-amber-50 border-amber-300 text-amber-600">
+                      <AlertCircle className="h-3 w-3" />
+                      Save API key first
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-muted border-border text-muted-foreground">
+                      Run test to verify
+                    </span>
+                  )
+                ) : previewHasKey ? (
+                  <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${previewMeta?.bg} ${previewMeta?.text} ${previewMeta?.border}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${previewMeta?.dot}`} />
+                    Active
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-red-50 border-red-300 text-red-600">
+                    <AlertCircle className="h-3 w-3" />
+                    No API key
+                  </span>
+                )}
+              </motion.div>
+            </AnimatePresence>
           ) : (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
               <p className="text-xs text-amber-700">No judge model configured. Select a provider and model below.</p>
