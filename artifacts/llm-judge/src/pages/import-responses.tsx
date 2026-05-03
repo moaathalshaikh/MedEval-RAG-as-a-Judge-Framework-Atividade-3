@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Upload, CheckCircle2, SkipForward, AlertCircle, Download } from "lucide-react";
+import { useLocation } from "wouter";
+import { Upload, CheckCircle2, SkipForward, AlertCircle, Download, Copy, ArrowRight } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
@@ -134,6 +135,7 @@ export default function ImportResponses() {
   const { data: datasets, isLoading: isLoadingDatasets } = useListDatasets();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedModelId, setSelectedModelId]   = useState<number | null>(null);
@@ -459,9 +461,42 @@ export default function ImportResponses() {
                       </div>
                     </div>
                   </div>
-                  {result.errors.length > 0 && (
-                    <div className="text-xs text-destructive space-y-0.5 max-h-24 overflow-y-auto">
-                      {result.errors.slice(0, 10).map((e, i) => <p key={i}>{e}</p>)}
+
+                  {/* All-duplicates notice */}
+                  {result.skipped > 0 && result.imported === 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+                      <div className="flex items-start gap-3">
+                        <Copy className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-amber-800">
+                            All {result.skipped} {result.skipped === 1 ? "response was" : "responses were"} already imported
+                          </p>
+                          <p className="text-xs text-amber-700 leading-relaxed">
+                            This file has been uploaded before for <span className="font-medium">{selectedModel?.modelName}</span> on this dataset.
+                            Duplicate responses are skipped automatically to keep your data clean.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full gap-2 border-amber-300 text-amber-800 hover:bg-amber-100"
+                        onClick={() => navigate("/results")}
+                      >
+                        View previously imported results
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Partial-duplicates notice */}
+                  {result.skipped > 0 && result.imported > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex items-start gap-3">
+                      <Copy className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <p className="text-xs text-amber-700 leading-relaxed">
+                        <span className="font-medium">{result.skipped} {result.skipped === 1 ? "response was" : "responses were"} skipped</span> — already stored for this model/dataset combination.
+                        Only new entries were saved.
+                      </p>
                     </div>
                   )}
                 </div>
