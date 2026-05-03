@@ -10,8 +10,10 @@ import {
   Upload,
   List,
   Stethoscope,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@workspace/replit-auth-web";
 
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -26,6 +28,17 @@ const NAV_ITEMS = [
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
+
+  const displayName = user
+    ? user.firstName
+      ? `${user.firstName}${user.lastName ? " " + user.lastName : ""}`
+      : user.email ?? "User"
+    : null;
+
+  const initials = displayName
+    ? displayName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden font-sans text-foreground">
@@ -41,6 +54,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <p className="text-[11px] text-muted-foreground">AI Evaluation System</p>
           </div>
         </div>
+
+        {/* Welcome banner */}
+        {user && (
+          <div className="px-4 py-3 border-b border-border bg-accent/40">
+            <p className="text-[11px] text-muted-foreground leading-none mb-1">Welcome back</p>
+            <p className="text-sm font-semibold text-foreground truncate">{displayName}</p>
+          </div>
+        )}
 
         {/* Nav */}
         <nav className="flex-1 py-4 px-3 space-y-0.5 overflow-y-auto">
@@ -71,12 +92,48 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-border">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-500" />
-            <span className="text-xs text-muted-foreground">System Online</span>
-          </div>
+        {/* Footer — user card + logout */}
+        <div className="p-3 border-t border-border">
+          {user ? (
+            <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/60 group transition-colors">
+              {/* Avatar */}
+              {user.profileImageUrl ? (
+                <img
+                  src={user.profileImageUrl}
+                  alt={displayName ?? ""}
+                  className="w-7 h-7 rounded-full border border-border shrink-0"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-primary font-bold text-[11px] shrink-0">
+                  {initials}
+                </div>
+              )}
+              {/* Name + email */}
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate leading-none mb-0.5">
+                  {displayName}
+                </p>
+                {user.email && (
+                  <p className="text-[10px] text-muted-foreground truncate leading-none">
+                    {user.email}
+                  </p>
+                )}
+              </div>
+              {/* Logout button */}
+              <button
+                onClick={logout}
+                title="Log out"
+                className="shrink-0 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-2">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-xs text-muted-foreground">System Online</span>
+            </div>
+          )}
         </div>
       </aside>
 
