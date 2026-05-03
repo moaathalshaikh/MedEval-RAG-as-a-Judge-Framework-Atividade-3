@@ -26,21 +26,40 @@ interface ParsedResult {
 }
 
 // ── CSV helpers ────────────────────────────────────────────────────────────
-function splitCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let current = "";
+
+/** Full CSV parser that handles quoted fields containing commas and newlines. */
+function parseCSVRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
   let inQuotes = false;
-  for (const ch of line) {
-    if (ch === '"') { inQuotes = !inQuotes; }
-    else if (ch === "," && !inQuotes) { result.push(current); current = ""; }
-    else { current += ch; }
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (ch === '"') {
+      if (inQuotes && next === '"') { cell += '"'; i++; }   // escaped ""
+      else { inQuotes = !inQuotes; }
+    } else if (ch === "," && !inQuotes) {
+      row.push(cell); cell = "";
+    } else if ((ch === "\r" || ch === "\n") && !inQuotes) {
+      if (ch === "\r" && next === "\n") i++;                // skip \r\n pair
+      row.push(cell); cell = "";
+      if (row.some((c) => c.trim())) rows.push(row);
+      row = [];
+    } else {
+      cell += ch;
+    }
   }
-  result.push(current);
-  return result;
+  // last row
+  row.push(cell);
+  if (row.some((c) => c.trim())) rows.push(row);
+  return rows;
 }
 
-function parseHeader(line: string) {
-  return splitCSVLine(line).map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
+function parseHeader(row: string[]) {
+  return row.map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
 }
 
 /**
@@ -49,9 +68,9 @@ function parseHeader(line: string) {
  * Resolves by externalId (the "id" column).
  */
 function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
-  const lines = text.trim().split("\n");
-  if (lines.length < 2) return { entries: [] };
-  const header = parseHeader(lines[0]);
+  const rows = parseCSVRows(text);
+  if (rows.length < 2) return { entries: [] };
+  const header = parseHeader(rows[0]);
 
   const idIdx   = header.findIndex((h) => h === "id");
   const qIdx    = header.findIndex((h) => h === "question");
@@ -59,16 +78,13 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
   const timeIdx = header.findIndex((h) => h.includes("time") || h.includes("ms") || h.includes("inference"));
 
   const entries: ImportEntry[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const cols = splitCSVLine(line);
-    const externalId   = idIdx  >= 0 ? cols[idIdx]?.trim().replace(/^"|"$/g, "") : undefined;
-    const questionText = qIdx   >= 0 ? cols[qIdx]?.trim().replace(/^"|"$/g, "")  : undefined;
-    const responseText = cols[ansIdx >= 0 ? ansIdx : 2]?.trim().replace(/^"|"$/g, "") ?? "";
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    const externalId   = idIdx  >= 0 ? cols[idIdx]?.trim()  : undefined;
+    const questionText = qIdx   >= 0 ? cols[qIdx]?.trim()   : undefined;
+    const responseText = cols[ansIdx >= 0 ? ansIdx : 2]?.trim() ?? "";
     const inferenceTimeMs = timeIdx >= 0 ? (parseFloat(cols[timeIdx]) || null) : null;
     if (!responseText) continue;
-    // Send both externalId and questionText — backend tries externalId first, falls back to questionText
     entries.push({ externalId, questionText, modelId, responseText, inferenceTimeMs });
   }
   return { entries };
@@ -83,23 +99,20 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
  * Resolves by questionText prefix.
  */
 function parseMCQCSV(text: string, modelId: number): ParsedResult {
-  const lines = text.trim().split("\n");
-  if (lines.length < 2) return { entries: [] };
-  const header = parseHeader(lines[0]);
+  const rows = parseCSVRows(text);
+  if (rows.length < 2) return { entries: [] };
+  const header = parseHeader(rows[0]);
 
   const qIdx = header.findIndex((h) => h === "question" || h.includes("question"));
-  // Prediction column: any column that's not question/correct/score/id
   const SKIP = new Set(["question", "correct", "score", "id"]);
   const predIdx = header.findIndex((h) => !SKIP.has(h));
   const predColName = predIdx >= 0 ? header[predIdx] : undefined;
 
   const entries: ImportEntry[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const cols = splitCSVLine(line);
-    const questionText = cols[qIdx >= 0 ? qIdx : 0]?.trim().replace(/^"|"$/g, "");
-    const prediction   = cols[predIdx >= 0 ? predIdx : 1]?.trim().replace(/^"|"$/g, "").toUpperCase();
+  for (let i = 1; i < rows.length; i++) {
+    const cols = rows[i];
+    const questionText = cols[qIdx >= 0 ? qIdx : 0]?.trim();
+    const prediction   = cols[predIdx >= 0 ? predIdx : 1]?.trim().toUpperCase();
     if (!questionText || !prediction) continue;
     entries.push({ questionText, modelId, responseText: prediction });
   }
