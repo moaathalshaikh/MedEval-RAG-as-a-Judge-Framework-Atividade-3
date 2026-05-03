@@ -142,6 +142,8 @@ router.post("/settings/judge-model", async (req: Request, res: Response): Promis
 
   await upsertSetting(uid, JUDGE_MODEL_ID_KEY, String(judgeModelId));
   await upsertSetting(uid, JUDGE_MODEL_VERSION_KEY, modelVersion.trim());
+  // Also store per-provider version so multiple providers can be configured
+  await upsertSetting(uid, `judge_model_version_${judgeModelId}`, modelVersion.trim());
 
   res.json({
     judgeModelId: model.id,
@@ -149,6 +151,46 @@ router.post("/settings/judge-model", async (req: Request, res: Response): Promis
     displayName: model.displayName,
     modelVersion: modelVersion.trim(),
   });
+});
+
+// ── Active judge models (providers with API keys + saved model versions) ────
+
+router.get("/settings/active-judge-models", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
+  const allProviders = await db.select().from(judgeModelsTable);
+
+  const [openaiKey, geminiKey, deepseekKey, claudeKey] = await Promise.all([
+    getSetting(uid, KEY_NAMES.openai),
+    getSetting(uid, KEY_NAMES.gemini),
+    getSetting(uid, KEY_NAMES.deepseek),
+    getSetting(uid, KEY_NAMES.claude),
+  ]);
+
+  const keyMap: Record<string, string | null> = {
+    OpenAI: openaiKey,
+    Gemini: geminiKey,
+    DeepSeek: deepseekKey,
+    Claude: claudeKey,
+  };
+
+  const result = await Promise.all(
+    allProviders.map(async (p) => {
+      const hasKey = !!keyMap[p.provider];
+      const modelVersion = await getSetting(uid, `judge_model_version_${p.id}`);
+      return {
+        id: p.id,
+        provider: p.provider,
+        displayName: p.displayName,
+        modelVersion: modelVersion ?? null,
+        hasKey,
+        active: hasKey && !!modelVersion,
+      };
+    })
+  );
+
+  res.json(result.filter((p) => p.active));
 });
 
 // ── Delete API Keys (called on logout for security) ─────────────────────────

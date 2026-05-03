@@ -152,6 +152,22 @@ function useJudgeProviders() {
   });
 }
 
+interface ActiveJudgeModel {
+  id: number;
+  provider: string;
+  displayName: string;
+  modelVersion: string;
+  hasKey: boolean;
+  active: boolean;
+}
+
+function useActiveJudgeModels() {
+  return useQuery<ActiveJudgeModel[]>({
+    queryKey: ["settings", "active-judge-models"],
+    queryFn: () => fetch("/api/settings/active-judge-models", { credentials: "include" }).then((r) => r.json()),
+  });
+}
+
 function useSetJudgeModel() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -167,6 +183,7 @@ function useSetJudgeModel() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings", "judge-model"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "active-judge-models"] });
     },
   });
 }
@@ -198,6 +215,7 @@ export default function Settings() {
   const { data: status, isLoading: isLoadingKeys } = useGetApiKeyStatus();
   const { data: judgeModel, isLoading: isLoadingJudge } = useJudgeModel();
   const { data: providers, isLoading: isLoadingProviders } = useJudgeProviders();
+  const { data: activeJudgeModels } = useActiveJudgeModels();
   const saveKeys = useSaveApiKeys();
   const setJudgeModel = useSetJudgeModel();
   const testConn = useTestConnection();
@@ -260,7 +278,11 @@ export default function Settings() {
     setTestStatus("idle");
     setTestMessage("");
     setTestConfirmedModel("");
-    if (judgeModel?.judgeModelId === p.id && judgeModel.modelVersion) {
+    // Pre-fill with per-provider saved model version (if any)
+    const savedForProvider = activeJudgeModels?.find((m) => m.id === p.id)?.modelVersion;
+    if (savedForProvider) {
+      setModelVersion(savedForProvider);
+    } else if (judgeModel?.judgeModelId === p.id && judgeModel.modelVersion) {
       setModelVersion(judgeModel.modelVersion);
     } else {
       setModelVersion("");
@@ -494,6 +516,9 @@ export default function Settings() {
                   const providerHasKey = status ? !!status[meta.statusKey] : false;
                   const isActive = judgeModel?.judgeModelId === p.id && !selectedProviderId;
                   const isSelected = selectedProviderId === p.id;
+                  // Show per-provider configured model version (not just the "default" one)
+                  const perProviderVersion = activeJudgeModels?.find((m) => m.id === p.id)?.modelVersion;
+                  const displayVersion = perProviderVersion ?? (isActive ? judgeModel?.modelVersion : null);
                   return (
                     <button
                       key={p.id}
@@ -504,6 +529,8 @@ export default function Settings() {
                           ? `${meta.bg} ${meta.border} ring-2 ${meta.ring}`
                           : isActive
                           ? `${meta.bg} ${meta.border}`
+                          : perProviderVersion
+                          ? "bg-muted/40 border-border"
                           : "bg-background border-border hover:bg-muted/50"
                       }`}
                     >
@@ -512,15 +539,22 @@ export default function Settings() {
                         <p className={`text-sm font-medium truncate ${isSelected || isActive ? meta.text : "text-foreground"}`}>
                           {meta.label}
                         </p>
-                        {isActive && judgeModel?.modelVersion && (
-                          <p className={`text-xs truncate opacity-70 ${meta.text}`}>{judgeModel.modelVersion}</p>
+                        {displayVersion && (
+                          <p className={`text-xs truncate opacity-70 ${isSelected || isActive ? meta.text : "text-muted-foreground"}`}>
+                            {displayVersion}
+                          </p>
                         )}
                       </div>
-                      {/* Key indicator dot */}
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${providerHasKey ? "bg-green-500" : "bg-muted-foreground/30"}`}
-                        title={providerHasKey ? "API key configured" : "No API key"}
-                      />
+                      {/* Key + configured indicator */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {perProviderVersion && (
+                          <Check className="h-3 w-3 text-green-500" />
+                        )}
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${providerHasKey ? "bg-green-500" : "bg-muted-foreground/30"}`}
+                          title={providerHasKey ? "API key configured" : "No API key"}
+                        />
+                      </div>
                     </button>
                   );
                 })}

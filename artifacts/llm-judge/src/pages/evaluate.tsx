@@ -7,18 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles } from "lucide-react";
+import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, ChevronDown } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
 
-interface JudgeModelConfig {
-  judgeModelId: number | null;
-  displayName: string | null;
-  provider: string | null;
-  modelVersion: string | null;
+interface ActiveJudgeModel {
+  id: number;
+  provider: string;
+  displayName: string;
+  modelVersion: string;
+  hasKey: boolean;
+  active: boolean;
 }
 
 interface RefStatus {
@@ -33,17 +35,19 @@ interface EvalResult {
   errors: string[];
 }
 
-const PROVIDER_LABEL: Record<string, string> = {
-  OpenAI: "OpenAI",
-  Gemini: "Google",
-  Claude: "Anthropic",
-  DeepSeek: "DeepSeek",
+const PROVIDER_META: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
+  OpenAI:   { label: "OpenAI",   bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
+  Gemini:   { label: "Google",   bg: "bg-blue-50",    text: "text-blue-700",    border: "border-blue-200",    dot: "bg-blue-500"    },
+  Claude:   { label: "Anthropic",bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   dot: "bg-amber-500"   },
+  DeepSeek: { label: "DeepSeek", bg: "bg-violet-50",  text: "text-violet-700",  border: "border-violet-200",  dot: "bg-violet-500"  },
 };
 
-function useJudgeModel() {
-  return useQuery<JudgeModelConfig>({
-    queryKey: ["settings", "judge-model"],
-    queryFn: () => fetch("/api/settings/judge-model", { credentials: "include" }).then((r) => r.json()),
+function useActiveJudgeModels() {
+  return useQuery<ActiveJudgeModel[]>({
+    queryKey: ["settings", "active-judge-models"],
+    queryFn: () =>
+      fetch("/api/settings/active-judge-models", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
   });
 }
 
@@ -60,11 +64,12 @@ function useRefStatus(datasetId: string | null) {
 export default function Evaluate() {
   const { data: models, isLoading: isLoadingModels } = useListModels();
   const { data: datasets, isLoading: isLoadingDatasets } = useListDatasets();
-  const { data: judgeModel, isLoading: isLoadingJudge } = useJudgeModel();
+  const { data: activeJudgeModels, isLoading: isLoadingJudge } = useActiveJudgeModels();
   const runJudge = useRunJudge();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const [selectedJudgeId, setSelectedJudgeId] = useState<string>("");
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
@@ -76,15 +81,19 @@ export default function Evaluate() {
     ? Math.round((refStatus.covered / refStatus.total) * 100)
     : 0;
 
-  const isReady = !!(judgeModel?.judgeModelId) && !!selectedDatasetId && refComplete;
+  const selectedJudge = activeJudgeModels?.find((m) => m.id.toString() === selectedJudgeId);
+  const judgeMeta = selectedJudge ? PROVIDER_META[selectedJudge.provider] : null;
+
+  const hasActiveModels = (activeJudgeModels?.length ?? 0) > 0;
+  const isReady = !!selectedJudge && !!selectedDatasetId && refComplete;
 
   function handleEvaluate() {
-    if (!judgeModel?.judgeModelId || !selectedDatasetId) return;
+    if (!selectedJudge || !selectedDatasetId) return;
     setEvalResult(null);
     runJudge.mutate(
       {
         data: {
-          judgeModelId: judgeModel.judgeModelId,
+          judgeModelId: selectedJudge.id,
           datasetId: parseInt(selectedDatasetId),
           modelId: selectedModelId && selectedModelId !== "all" ? parseInt(selectedModelId) : undefined,
           useReferenceAnswers: true,
@@ -118,39 +127,79 @@ export default function Evaluate() {
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-8 space-y-4">
 
-          {/* Judge Model */}
+          {/* Judge Model selection */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
+                <Link href="/settings">
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                    <Settings className="h-3.5 w-3.5" />
+                    Manage
+                  </Button>
+                </Link>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
               {isLoadingJudge ? (
-                <Skeleton className="h-14 w-full" />
-              ) : judgeModel?.judgeModelId ? (
-                <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div>
-                    <p className="font-semibold text-green-800">{judgeModel.displayName}</p>
-                    <p className="text-xs text-green-600 mt-0.5">
-                      {PROVIDER_LABEL[judgeModel.provider ?? ""] ?? judgeModel.provider} · {judgeModel.modelVersion}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-green-100 text-green-700 border-0">Active</Badge>
-                    <Link href="/settings">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600">
-                        <Settings className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              ) : (
+                <Skeleton className="h-10 w-full" />
+              ) : !hasActiveModels ? (
                 <Alert className="border-amber-200 bg-amber-50">
                   <AlertCircle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="text-amber-700 text-sm">
-                    No judge model configured.{" "}
-                    <Link href="/settings" className="underline font-medium">Configure in Settings →</Link>
+                    No active judge models.{" "}
+                    <Link href="/settings" className="underline font-medium">
+                      Configure a model in Settings →
+                    </Link>
                   </AlertDescription>
                 </Alert>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Select judge model</Label>
+                    <Select value={selectedJudgeId} onValueChange={setSelectedJudgeId}>
+                      <SelectTrigger className="h-10">
+                        <SelectValue placeholder="— choose a configured judge model —" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeJudgeModels?.map((m) => {
+                          const meta = PROVIDER_META[m.provider];
+                          return (
+                            <SelectItem key={m.id} value={m.id.toString()}>
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${meta?.dot ?? "bg-muted"}`} />
+                                <span className="font-medium">{meta?.label ?? m.provider}</span>
+                                <span className="text-muted-foreground font-mono text-xs">·  {m.modelVersion}</span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Selected judge preview */}
+                  {selectedJudge && judgeMeta && (
+                    <motion.div
+                      key={selectedJudgeId}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg border ${judgeMeta.bg} ${judgeMeta.border}`}
+                    >
+                      <div>
+                        <p className={`text-sm font-semibold ${judgeMeta.text}`}>{selectedJudge.displayName}</p>
+                        <p className={`text-xs opacity-70 mt-0.5 ${judgeMeta.text}`}>
+                          {judgeMeta.label} · {selectedJudge.modelVersion}
+                        </p>
+                      </div>
+                      <Badge className={`text-xs border-0 ${judgeMeta.bg} ${judgeMeta.text}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${judgeMeta.dot}`} />
+                        Active
+                      </Badge>
+                    </motion.div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -258,7 +307,7 @@ export default function Evaluate() {
               <Button
                 className="w-full h-12 gap-2 text-base"
                 onClick={handleEvaluate}
-                disabled={runJudge.isPending || !judgeModel?.judgeModelId || !selectedDatasetId || !refComplete}
+                disabled={runJudge.isPending || !isReady}
               >
                 {runJudge.isPending ? (
                   <>
@@ -275,8 +324,10 @@ export default function Evaluate() {
 
               {!isReady && (
                 <p className="text-xs text-muted-foreground text-center">
-                  {!judgeModel?.judgeModelId
-                    ? "Configure a judge model in Settings"
+                  {!hasActiveModels
+                    ? "Configure a judge model in Settings first"
+                    : !selectedJudge
+                    ? "Select a judge model above"
                     : !selectedDatasetId
                     ? "Select a dataset to continue"
                     : "Complete Step 2 (Reference Answers) before evaluating"}
