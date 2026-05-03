@@ -216,14 +216,36 @@ router.post("/auth/firebase-session", async (req: Request, res: Response) => {
     profileImageUrl: claims.picture,
   };
 
-  const [user] = await db
-    .insert(usersTable)
-    .values(userData)
-    .onConflictDoUpdate({
-      target: usersTable.id,
-      set: { ...userData, updatedAt: new Date() },
-    })
-    .returning();
+  let user: typeof usersTable.$inferSelect;
+
+  try {
+    const [inserted] = await db
+      .insert(usersTable)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: usersTable.id,
+        set: { ...userData, updatedAt: new Date() },
+      })
+      .returning();
+    user = inserted;
+  } catch (e: unknown) {
+    // email unique constraint violation — another account uses this email
+    // retry without email so the Firebase user gets their own isolated record
+    const isUniqueViolation =
+      typeof e === "object" && e !== null && "code" in e && (e as { code: string }).code === "23505";
+    if (!isUniqueViolation) throw e;
+
+    const dataWithoutEmail = { ...userData, email: null };
+    const [inserted] = await db
+      .insert(usersTable)
+      .values(dataWithoutEmail)
+      .onConflictDoUpdate({
+        target: usersTable.id,
+        set: { ...dataWithoutEmail, updatedAt: new Date() },
+      })
+      .returning();
+    user = inserted;
+  }
 
   const sessionData: SessionData = {
     user: {
