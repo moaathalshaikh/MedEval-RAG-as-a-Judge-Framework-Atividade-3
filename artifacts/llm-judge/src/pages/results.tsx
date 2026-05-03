@@ -1,5 +1,5 @@
 import { useGetResults, useListModels, useListDatasets, getGetResultsQueryKey } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
@@ -45,10 +45,15 @@ function exportResultsCSV(rows: any[]) {
   URL.revokeObjectURL(a.href);
 }
 
+type DeleteTarget = { kind: "response"; responseId: number } | { kind: "evaluation"; evaluationId: number };
+
 export default function Results() {
   const [datasetId, setDatasetId] = useState<string>("");
   const [modelId, setModelId] = useState<string>("");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: models } = useListModels();
   const { data: datasets } = useListDatasets();
@@ -61,6 +66,28 @@ export default function Results() {
   const { data: results, isLoading } = useGetResults(queryParams, {
     query: { queryKey: getGetResultsQueryKey(queryParams) }
   });
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      if (deleteTarget.kind === "response") {
+        const res = await fetch(`/api/responses/${deleteTarget.responseId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error((await res.json()).error);
+        toast({ title: "Response deleted", description: "The response and its evaluation have been removed." });
+      } else {
+        const res = await fetch(`/api/evaluations/${deleteTarget.evaluationId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error((await res.json()).error);
+        toast({ title: "Evaluation cleared", description: "The score has been removed. You can re-evaluate this response." });
+      }
+      queryClient.invalidateQueries();
+    } catch (e) {
+      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
+    } finally {
+      setIsDeleting(false);
+      setDeleteTarget(null);
+    }
+  }
 
   return (
     <motion.div
@@ -139,7 +166,8 @@ export default function Results() {
                     <ResultRowComponent
                       key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`}
                       row={row}
-                      onDeleted={() => queryClient.invalidateQueries()}
+                      onDeleteResponse={(responseId) => setDeleteTarget({ kind: "response", responseId })}
+                      onClearEvaluation={(evaluationId) => setDeleteTarget({ kind: "evaluation", evaluationId })}
                     />
                   ))}
                   {(!results || results.length === 0) && (
@@ -155,45 +183,56 @@ export default function Results() {
           )}
         </CardContent>
       </Card>
+
+      {/* Confirm: clear evaluation — rendered outside table */}
+      <Dialog open={deleteTarget?.kind === "evaluation"} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear evaluation score?</DialogTitle>
+            <DialogDescription>
+              This removes the judge score and reasoning for this response. The response itself stays — you can re-evaluate it afterwards.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700 text-white" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? "Clearing…" : "Clear score"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirm: delete response — rendered outside table */}
+      <Dialog open={deleteTarget?.kind === "response"} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this response?</DialogTitle>
+            <DialogDescription>
+              This permanently removes the model response and its evaluation. You can re-import this response later.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? "Deleting…" : "Delete response"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }
 
-function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => void }) {
+function ResultRowComponent({
+  row,
+  onDeleteResponse,
+  onClearEvaluation,
+}: {
+  row: any;
+  onDeleteResponse: (responseId: number) => void;
+  onClearEvaluation: (evaluationId: number) => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState<"response" | "evaluation" | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const { toast } = useToast();
-
-  async function deleteResponse() {
-    setIsDeleting(true);
-    try {
-      const res = await fetch(`/api/responses/${row.responseId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json()).error);
-      toast({ title: "Response deleted", description: "The response and its evaluation have been removed." });
-      onDeleted();
-    } catch (e) {
-      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
-    } finally {
-      setIsDeleting(false);
-      setConfirmDialog(null);
-    }
-  }
-
-  async function deleteEvaluation() {
-    setIsDeleting(true);
-    try {
-      const res = await fetch(`/api/evaluations/${row.evaluationId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error((await res.json()).error);
-      toast({ title: "Evaluation cleared", description: "The score has been removed. You can re-evaluate this response." });
-      onDeleted();
-    } catch (e) {
-      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
-    } finally {
-      setIsDeleting(false);
-      setConfirmDialog(null);
-    }
-  }
 
   return (
     <>
@@ -249,12 +288,10 @@ function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => voi
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
                       <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{row.questionText}</div>
                     </div>
-
                     <div className="space-y-1.5">
                       <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Gold Answer</p>
                       <div className="text-sm leading-relaxed bg-green-50 border border-green-200 rounded-lg p-3.5 text-green-800">{row.goldAnswer}</div>
                     </div>
-
                     <div className="space-y-1.5">
                       <p className="text-xs font-semibold text-primary uppercase tracking-wide">Model Response</p>
                       <div className="text-sm leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3.5">{row.responseText}</div>
@@ -270,11 +307,9 @@ function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => voi
                           <Badge variant="secondary" className="text-xs">{row.judgeModelName}</Badge>
                         )}
                       </div>
-
                       <div className="mb-4">
                         <ScoreBadge score={row.score} />
                       </div>
-
                       {row.reasoning ? (
                         <div className="space-y-1.5">
                           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Reasoning</p>
@@ -297,7 +332,7 @@ function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => voi
                           variant="outline"
                           size="sm"
                           className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
-                          onClick={(e) => { e.stopPropagation(); setConfirmDialog("evaluation"); }}
+                          onClick={(e) => { e.stopPropagation(); onClearEvaluation(row.evaluationId); }}
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
                           Clear evaluation score
@@ -307,7 +342,7 @@ function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => voi
                         variant="outline"
                         size="sm"
                         className="w-full gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:border-red-300"
-                        onClick={(e) => { e.stopPropagation(); setConfirmDialog("response"); }}
+                        onClick={(e) => { e.stopPropagation(); onDeleteResponse(row.responseId); }}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Delete response
@@ -320,42 +355,6 @@ function ResultRowComponent({ row, onDeleted }: { row: any; onDeleted: () => voi
           </TableRow>
         )}
       </AnimatePresence>
-
-      {/* Confirm: delete evaluation */}
-      <Dialog open={confirmDialog === "evaluation"} onOpenChange={(o) => !o && setConfirmDialog(null)}>
-        <DialogContent onClick={(e) => e.stopPropagation()}>
-          <DialogHeader>
-            <DialogTitle>Clear evaluation score?</DialogTitle>
-            <DialogDescription>
-              This removes the judge score and reasoning for this response. The response itself stays — you can re-evaluate it afterwards.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDialog(null)} disabled={isDeleting}>Cancel</Button>
-            <Button className="bg-amber-600 hover:bg-amber-700 text-white" onClick={deleteEvaluation} disabled={isDeleting}>
-              {isDeleting ? "Clearing…" : "Clear score"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Confirm: delete response */}
-      <Dialog open={confirmDialog === "response"} onOpenChange={(o) => !o && setConfirmDialog(null)}>
-        <DialogContent onClick={(e) => e.stopPropagation()}>
-          <DialogHeader>
-            <DialogTitle>Delete this response?</DialogTitle>
-            <DialogDescription>
-              This permanently removes the model response and its evaluation. You can re-import this response later.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDialog(null)} disabled={isDeleting}>Cancel</Button>
-            <Button variant="destructive" onClick={deleteResponse} disabled={isDeleting}>
-              {isDeleting ? "Deleting…" : "Delete response"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
