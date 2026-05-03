@@ -1,0 +1,2 @@
+model,mcq_accuracy,mcq_correct,mcq_total,open_mean,open_median,open_std,open_min,open_max,open_good_0.5,open_excellent_0.8
+mistral,0.3333333333333333,9,27,0.6119281045751634,0.6,0.37207318377617304,0.0,1.0,11,7

@@ -10,49 +10,22 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 
-interface ResponseEntry {
-  questionId: number;
+// ── Types ──────────────────────────────────────────────────────────────────
+interface ImportEntry {
+  questionId?: number;
+  externalId?: string;
+  questionText?: string;
   modelId: number;
   responseText: string;
   inferenceTimeMs?: number | null;
 }
 
-function parseOpenEndedCSV(text: string, modelId: number): ResponseEntry[] {
-  const lines = text.trim().split("\n");
-  if (lines.length < 2) return [];
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const qIdx = header.findIndex((h) => h === "questionid" || h === "id");
-  const rIdx = header.findIndex((h) => h.includes("response") || h.includes("text") || h.includes("answer"));
-  const tIdx = header.findIndex((h) => h.includes("inference") || h.includes("time") || h.includes("ms"));
-  const entries: ResponseEntry[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = splitCSVLine(lines[i]);
-    const qId = parseInt(cols[qIdx >= 0 ? qIdx : 0]);
-    const response = cols[rIdx >= 0 ? rIdx : 1]?.trim().replace(/^"|"$/g, "") ?? "";
-    const latency = tIdx >= 0 ? parseInt(cols[tIdx]) || null : null;
-    if (!qId || !response) continue;
-    entries.push({ questionId: qId, modelId, responseText: response, inferenceTimeMs: latency });
-  }
-  return entries;
+interface ParsedResult {
+  entries: ImportEntry[];
+  predictionCol?: string; // detected MCQ prediction column name
 }
 
-function parseMCQCSV(text: string, modelId: number): ResponseEntry[] {
-  const lines = text.trim().split("\n");
-  if (lines.length < 2) return [];
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const qIdx = header.findIndex((h) => h === "questionid" || h === "id");
-  const aIdx = header.findIndex((h) => h.includes("answer") || h.includes("model") || h.includes("choice"));
-  const entries: ResponseEntry[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = splitCSVLine(lines[i]);
-    const qId = parseInt(cols[qIdx >= 0 ? qIdx : 0]);
-    const ans = cols[aIdx >= 0 ? aIdx : 1]?.trim().replace(/^"|"$/g, "").toUpperCase();
-    if (!qId || !ans) continue;
-    entries.push({ questionId: qId, modelId, responseText: ans });
-  }
-  return entries;
-}
-
+// ── CSV helpers ────────────────────────────────────────────────────────────
 function splitCSVLine(line: string): string[] {
   const result: string[] = [];
   let current = "";
@@ -66,6 +39,71 @@ function splitCSVLine(line: string): string[] {
   return result;
 }
 
+function parseHeader(line: string) {
+  return splitCSVLine(line).map((h) => h.trim().replace(/^"|"$/g, "").toLowerCase());
+}
+
+/**
+ * Open-ended file format (actual pipeline output):
+ *   id, question, answer, must_have_score
+ * Resolves by externalId (the "id" column).
+ */
+function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return { entries: [] };
+  const header = parseHeader(lines[0]);
+
+  const idIdx   = header.findIndex((h) => h === "id");
+  const ansIdx  = header.findIndex((h) => h === "answer" || h.includes("response") || h.includes("text"));
+  const timeIdx = header.findIndex((h) => h.includes("time") || h.includes("ms") || h.includes("inference"));
+
+  const entries: ImportEntry[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = splitCSVLine(line);
+    const externalId = idIdx >= 0 ? cols[idIdx]?.trim().replace(/^"|"$/g, "") : undefined;
+    const responseText = cols[ansIdx >= 0 ? ansIdx : 2]?.trim().replace(/^"|"$/g, "") ?? "";
+    const inferenceTimeMs = timeIdx >= 0 ? (parseFloat(cols[timeIdx]) || null) : null;
+    if (!responseText) continue;
+    entries.push({ externalId, modelId, responseText, inferenceTimeMs });
+  }
+  return { entries };
+}
+
+/**
+ * MCQ file format (actual pipeline output):
+ *   question, {model}_prediction, correct, score
+ *
+ * The prediction column name varies per model (e.g. biomistral_prediction, qwen_prediction).
+ * We detect it as any column that is NOT: question, correct, score, id.
+ * Resolves by questionText prefix.
+ */
+function parseMCQCSV(text: string, modelId: number): ParsedResult {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return { entries: [] };
+  const header = parseHeader(lines[0]);
+
+  const qIdx = header.findIndex((h) => h === "question" || h.includes("question"));
+  // Prediction column: any column that's not question/correct/score/id
+  const SKIP = new Set(["question", "correct", "score", "id"]);
+  const predIdx = header.findIndex((h) => !SKIP.has(h));
+  const predColName = predIdx >= 0 ? header[predIdx] : undefined;
+
+  const entries: ImportEntry[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = splitCSVLine(line);
+    const questionText = cols[qIdx >= 0 ? qIdx : 0]?.trim().replace(/^"|"$/g, "");
+    const prediction   = cols[predIdx >= 0 ? predIdx : 1]?.trim().replace(/^"|"$/g, "").toUpperCase();
+    if (!questionText || !prediction) continue;
+    entries.push({ questionText, modelId, responseText: prediction });
+  }
+  return { entries, predictionCol: predColName };
+}
+
+// ── Step badge ─────────────────────────────────────────────────────────────
 function StepBadge({ n, active }: { n: number; active: boolean }) {
   return (
     <span className={`text-xs font-semibold rounded-full w-5 h-5 flex items-center justify-center shrink-0 ${active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
@@ -74,6 +112,7 @@ function StepBadge({ n, active }: { n: number; active: boolean }) {
   );
 }
 
+// ── Main component ─────────────────────────────────────────────────────────
 export default function ImportResponses() {
   const { data: models, isLoading: isLoadingModels } = useListModels();
   const { data: datasets, isLoading: isLoadingDatasets } = useListDatasets();
@@ -81,21 +120,21 @@ export default function ImportResponses() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
+  const [selectedModelId, setSelectedModelId]   = useState<number | null>(null);
   const [selectedDatasetId, setSelectedDatasetId] = useState<number | null>(null);
-  const [parsedEntries, setParsedEntries] = useState<ResponseEntry[] | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [fileName, setFileName] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [result, setResult] = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [parsedResult, setParsedResult]         = useState<ParsedResult | null>(null);
+  const [parseError, setParseError]             = useState<string | null>(null);
+  const [fileName, setFileName]                 = useState("");
+  const [isSubmitting, setIsSubmitting]         = useState(false);
+  const [result, setResult]                     = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
 
-  const selectedModel = models?.find((m) => m.id === selectedModelId);
+  const selectedModel   = models?.find((m) => m.id === selectedModelId);
   const selectedDataset = datasets?.find((d) => d.id === selectedDatasetId);
-  const datasetType = selectedDataset?.datasetType ?? null;
-  const canUpload = !!selectedModelId && !!selectedDatasetId;
+  const datasetType     = selectedDataset?.datasetType ?? null;
+  const canUpload       = !!selectedModelId && !!selectedDatasetId;
 
   function resetFile() {
-    setParsedEntries(null);
+    setParsedResult(null);
     setParseError(null);
     setFileName("");
     setResult(null);
@@ -109,14 +148,18 @@ export default function ImportResponses() {
     setFileName(file.name);
     try {
       if (datasetType === "MCQ") {
-        setParsedEntries(parseMCQCSV(text, selectedModelId));
+        const parsed = parseMCQCSV(text, selectedModelId);
+        if (parsed.entries.length === 0) throw new Error("No records parsed — check column names");
+        setParsedResult(parsed);
       } else {
         if (file.name.endsWith(".json")) {
           const parsed = JSON.parse(text);
           if (!Array.isArray(parsed)) throw new Error("Expected JSON array");
-          setParsedEntries(parsed.map((r: ResponseEntry) => ({ ...r, modelId: selectedModelId })));
+          setParsedResult({ entries: parsed.map((r: ImportEntry) => ({ ...r, modelId: selectedModelId })) });
         } else {
-          setParsedEntries(parseOpenEndedCSV(text, selectedModelId));
+          const parsed = parseOpenEndedCSV(text, selectedModelId);
+          if (parsed.entries.length === 0) throw new Error("No records parsed — check column names");
+          setParsedResult(parsed);
         }
       }
     } catch (err) {
@@ -126,21 +169,24 @@ export default function ImportResponses() {
   }
 
   async function handleImport() {
-    if (!parsedEntries || parsedEntries.length === 0) return;
+    if (!parsedResult || parsedResult.entries.length === 0) return;
     setIsSubmitting(true);
     setResult(null);
     try {
       const res = await fetch("/api/responses/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ responses: parsedEntries }),
+        body: JSON.stringify({
+          responses: parsedResult.entries,
+          datasetId: selectedDatasetId,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
       setResult(data);
       queryClient.invalidateQueries();
       toast({ title: "Import complete", description: `${data.imported} responses imported.` });
-      setParsedEntries(null);
+      setParsedResult(null);
       setFileName("");
     } catch (err) {
       toast({ title: "Import failed", description: String(err), variant: "destructive" });
@@ -153,10 +199,10 @@ export default function ImportResponses() {
     let content: string;
     let name: string;
     if (datasetType === "MCQ") {
-      content = "questionId,Model_answer\n1,A\n2,C\n3,B";
+      content = `question,${selectedModel?.modelName ?? "model"}_prediction,correct,score\n"Question text here",A,B,False\n"Another question",C,C,True`;
       name = "mcq_responses_template.csv";
     } else {
-      content = "questionId,responseText,inferenceTimeMs\n1,\"Sample response text\",1234";
+      content = "id,question,answer,must_have_score\n101,\"Question text here\",\"Model response here\",0.75";
       name = "open_ended_responses_template.csv";
     }
     const blob = new Blob([content], { type: "text/csv" });
@@ -165,6 +211,8 @@ export default function ImportResponses() {
     a.download = name;
     a.click();
   }
+
+  const entries = parsedResult?.entries ?? [];
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-7">
@@ -184,9 +232,7 @@ export default function ImportResponses() {
         ) : models && models.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {models.map((m) => (
-              <button
-                key={m.id}
-                type="button"
+              <button key={m.id} type="button"
                 onClick={() => { setSelectedModelId(m.id); resetFile(); }}
                 className={`rounded-lg border-2 p-3 text-left transition-all ${selectedModelId === m.id ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40"}`}
               >
@@ -211,10 +257,7 @@ export default function ImportResponses() {
         ) : datasets && datasets.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {datasets.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                disabled={!selectedModelId}
+              <button key={d.id} type="button" disabled={!selectedModelId}
                 onClick={() => { setSelectedDatasetId(d.id); resetFile(); }}
                 className={`rounded-lg border-2 p-3 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${selectedDatasetId === d.id ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40"}`}
               >
@@ -247,14 +290,27 @@ export default function ImportResponses() {
         ) : (
           <Card>
             <CardContent className="pt-4 space-y-4">
-              {/* Format hint */}
+
+              {/* Format hint — shows actual pipeline format */}
               <div className="bg-muted/50 rounded-lg p-3 text-xs border flex items-start justify-between gap-3">
-                <div className="font-mono">
-                  <p className="font-semibold text-foreground not-italic mb-1">Expected columns:</p>
+                <div className="font-mono space-y-1">
+                  <p className="font-semibold text-foreground not-italic">Expected columns:</p>
                   {datasetType === "MCQ" ? (
-                    <p className="text-primary">questionId, Model_answer <span className="font-sans text-muted-foreground italic">(single letter A–F)</span></p>
+                    <>
+                      <p className="text-primary">
+                        question, <span className="text-amber-600">{"{model}"}_prediction</span>, correct, score
+                      </p>
+                      <p className="font-sans text-muted-foreground italic">
+                        Prediction column is detected automatically. Linked by question text.
+                      </p>
+                    </>
                   ) : (
-                    <p className="text-primary">questionId, responseText, inferenceTimeMs <span className="font-sans text-muted-foreground italic">(optional)</span></p>
+                    <>
+                      <p className="text-primary">id, question, answer, must_have_score</p>
+                      <p className="font-sans text-muted-foreground italic">
+                        Linked by <span className="font-mono not-italic">id</span> → stored question ID. Score column is ignored.
+                      </p>
+                    </>
                   )}
                 </div>
                 <Button variant="ghost" size="sm" className="shrink-0 gap-1 text-xs h-7" onClick={downloadTemplate}>
@@ -271,6 +327,11 @@ export default function ImportResponses() {
                   <div className="flex flex-col items-center gap-1">
                     <CheckCircle2 className="h-7 w-7 text-primary" />
                     <p className="text-sm font-medium text-foreground">{fileName}</p>
+                    {parsedResult?.predictionCol && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Prediction column detected: <span className="font-mono text-amber-600">{parsedResult.predictionCol}</span>
+                      </p>
+                    )}
                     <button
                       className="text-xs text-muted-foreground hover:text-foreground mt-1 underline"
                       onClick={(e) => { e.stopPropagation(); resetFile(); }}
@@ -282,7 +343,7 @@ export default function ImportResponses() {
                   <>
                     <Upload className="h-7 w-7 mx-auto mb-2 text-muted-foreground" />
                     <p className="text-sm font-medium text-foreground">Drop a file or click to browse</p>
-                    <p className="text-xs text-muted-foreground mt-1">{datasetType === "MCQ" ? "Accepts .csv" : "Accepts .csv or .json"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Accepts .csv{datasetType !== "MCQ" ? " or .json" : ""}</p>
                   </>
                 )}
               </div>
@@ -301,46 +362,56 @@ export default function ImportResponses() {
                 </Alert>
               )}
 
-              {parsedEntries && parsedEntries.length > 0 && (
+              {entries.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm text-green-700">
                     <div className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="font-medium">{parsedEntries.length} records ready to import for <span className="font-semibold">{selectedModel?.modelName}</span></span>
+                    <span className="font-medium">
+                      {entries.length} records ready for <span className="font-semibold">{selectedModel?.modelName}</span>
+                    </span>
                   </div>
 
                   <div className="max-h-48 overflow-y-auto rounded-lg border border-border">
                     <table className="w-full text-xs">
                       <thead className="bg-muted sticky top-0">
                         <tr>
-                          <th className="text-left p-2.5 font-medium text-muted-foreground">Q ID</th>
                           {datasetType === "MCQ" ? (
-                            <th className="text-left p-2.5 font-medium text-muted-foreground">Model Answer</th>
+                            <>
+                              <th className="text-left p-2.5 font-medium text-muted-foreground w-[70%]">Question (prefix)</th>
+                              <th className="text-left p-2.5 font-medium text-muted-foreground">Prediction</th>
+                            </>
                           ) : (
                             <>
+                              <th className="text-left p-2.5 font-medium text-muted-foreground">ID</th>
                               <th className="text-left p-2.5 font-medium text-muted-foreground">Response</th>
-                              <th className="text-right p-2.5 font-medium text-muted-foreground">Latency (ms)</th>
                             </>
                           )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {parsedEntries.slice(0, 50).map((r, i) => (
+                        {entries.slice(0, 50).map((r, i) => (
                           <tr key={i} className="hover:bg-muted/40">
-                            <td className="p-2.5 font-mono">{r.questionId}</td>
                             {datasetType === "MCQ" ? (
-                              <td className="p-2.5 font-mono font-bold text-primary">{r.responseText}</td>
+                              <>
+                                <td className="p-2.5 text-muted-foreground truncate max-w-[240px]" title={r.questionText}>
+                                  {r.questionText?.slice(0, 80)}…
+                                </td>
+                                <td className="p-2.5 font-mono font-bold text-primary">{r.responseText}</td>
+                              </>
                             ) : (
                               <>
-                                <td className="p-2.5 max-w-[220px] truncate text-muted-foreground" title={r.responseText}>{r.responseText}</td>
-                                <td className="p-2.5 text-right font-mono text-muted-foreground">{r.inferenceTimeMs ?? "—"}</td>
+                                <td className="p-2.5 font-mono text-muted-foreground">{r.externalId}</td>
+                                <td className="p-2.5 truncate max-w-[240px] text-muted-foreground" title={r.responseText}>
+                                  {r.responseText.slice(0, 80)}{r.responseText.length > 80 ? "…" : ""}
+                                </td>
                               </>
                             )}
                           </tr>
                         ))}
-                        {parsedEntries.length > 50 && (
+                        {entries.length > 50 && (
                           <tr className="bg-muted/20">
-                            <td colSpan={datasetType === "MCQ" ? 2 : 3} className="p-2.5 text-center text-xs text-muted-foreground">
-                              + {parsedEntries.length - 50} more records
+                            <td colSpan={2} className="p-2.5 text-center text-xs text-muted-foreground">
+                              + {entries.length - 50} more records
                             </td>
                           </tr>
                         )}
@@ -350,7 +421,7 @@ export default function ImportResponses() {
 
                   <Button className="w-full gap-2" onClick={handleImport} disabled={isSubmitting}>
                     <Upload className="h-4 w-4" />
-                    {isSubmitting ? "Importing..." : `Import ${parsedEntries.length} Responses`}
+                    {isSubmitting ? "Importing…" : `Import ${entries.length} Responses`}
                   </Button>
                 </div>
               )}

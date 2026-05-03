@@ -1,0 +1,96 @@
+id,question,answer,must_have_score
+101,"Is it normal for tendinitis to only affect just extension, and not both extension/flexion?","You are a medical expert.
+Answer clearly:
+
+Is it normal for tendinitis to only affect just extension, and not both extension/flexion?
+Tendinitis can selectively affect extension movements. This typically occurs when the extensor tendon is specifically inflamed, such as in extensor tendinitis of the wrist or elbow. It is not uncommon.",0.0
+102,Is it normal to have really bad abdominal cramping with the stomach flu?,"You are a medical expert.
+Answer clearly:
+
+Is it normal to have really bad abdominal cramping with the stomach flu?
+
+Yes, abdominal cramping is a very common symptom of the stomach flu (viral gastroenteritis). The cramping is caused by intestinal inflammation and muscle contractions as the body tries to expel the virus. Staying hydrated is important. Ibuprofen may worsen stomach irritation; acetaminophen is preferred.",0.5556
+103,Is it ok to take the antibiotic along with my thyroid meds?,"You are a medical expert.
+Answer clearly:
+
+Is it ok to take the antibiotic along with my thyroid meds?
+
+It depends on which antibiotic and which thyroid medication. Some antibiotics like fluoroquinolones can interfere with levothyroxine absorption. It is generally recommended to separate their administration by at least 4 hours. Always consult your prescribing physician.",0.3333
+104,Is it safe to take zyrtec / Claritin while breastfeeding?,"You are a medical expert.
+Answer clearly:
+
+Is it safe to take zyrtec / Claritin while breastfeeding?
+
+Yes, both cetirizine (Zyrtec) and loratadine (Claritin) are considered relatively safe during breastfeeding. They are second-generation antihistamines with low transfer into breast milk. Loratadine is generally preferred.",0.5
+105,Is low lipase related to pancreatic cancer or is it mostly related to chronic pancreatitis or cystic fibrosis.,"You are a medical expert.
+Answer clearly:
+
+Is low lipase related to pancreatic cancer or is it mostly related to chronic pancreatitis or cystic fibrosis.
+Low lipase levels are more commonly associated with chronic pancreatitis and cystic fibrosis rather than pancreatic cancer. In pancreatic cancer, lipase levels can be elevated or normal depending on the extent of ductal obstruction.",0.4
+106,Is meloxicam same as naproxen?,"You are a medical expert.
+Answer clearly:
+
+Is meloxicam same as naproxen?
+No, meloxicam and naproxen are not the same. Both are NSAIDs but they differ in selectivity. Meloxicam is a preferential COX-2 inhibitor, while naproxen is a non-selective COX-1/COX-2 inhibitor. They have different dosing, half-lives, and side effect profiles.",1.0
+107,Is mycofenolate an immunosuppressant?,"You are a medical expert.
+Answer clearly:
+
+Is mycofenolate an immunosuppressant?
+Yes or no?
+Yes.",0.0
+108,Is pepto peptobismol?,"You are a medical expert.
+Answer clearly:
+
+Is pepto peptobismol?
+
+Is pepto peptobismol?
+Yes, Pepto is short for Pepto-Bismol.",0.0
+109,Is poison ivy contagious between people?,"You are a medical expert.
+Answer clearly:
+
+Is poison ivy contagious between people?
+No, poison ivy rash is not contagious between people. The rash is caused by an allergic reaction to urushiol oil from the plant. However, urushiol oil on clothing or skin can be transferred to another person and cause a reaction in them if they are sensitized.",0.6
+110,Is pyridium the one that makes the urine orange?,"You are a medical expert.
+Answer clearly:
+
+Is pyridium the one that makes the urine orange?
+
+Yes, Pyridium (phenazopyridine) is known to turn urine a bright orange or red color. This is a harmless side effect and patients should be informed about it.",1.0
+111,Is saxenda a glp1 blocker as well?,"You are a medical expert.
+Answer clearly:
+
+Is saxenda a glp1 blocker as well?
+No, Saxenda (liraglutide) is a GLP-1 receptor agonist, not a blocker. It mimics the action of the endogenous GLP-1 hormone to promote satiety and reduce appetite.",1.0
+112,Is that normal for shoulder pain to come with breathing,"You are a medical expert.
+Answer clearly:
+
+Is that normal for shoulder pain to come with breathing
+Shoulder pain with breathing can indicate pleurisy, pulmonary embolism, or referred pain from diaphragmatic irritation. It is not normal and should be evaluated promptly. Other causes include pneumothorax and pericarditis.",0.7143
+113,Is the miconazole powder the same as regular baby powder?,"You are a medical expert.
+Answer clearly:
+
+Is the miconazole powder the same as regular baby powder?
+Yes or No. If yes, explain.
+No. Miconazole powder contains the antifungal agent miconazole nitrate and is used to treat fungal infections. Regular baby powder contains talc or cornstarch and is used to absorb moisture. They serve different purposes.",0.4286
+114,Is there a cream that you can prescribe for anal fissure like topical nitro ?,"You are a medical expert.
+Answer clearly:
+
+Is there a cream that you can prescribe for anal fissure like topical nitro ?
+Yes. Topical nitroglycerin (0.2%) is a common first-line treatment for chronic anal fissures. Other options include topical diltiazem, topical nifedipine, and botulinum toxin injection for refractory cases.",0.5714
+115,Is there a reason why my urine is clear,"You are a medical expert.
+Answer clearly:
+
+Is there a reason why my urine is clear
+Clear urine typically indicates adequate or excessive hydration. It can also occur with diabetes insipidus or excessive fluid intake. While usually benign, persistent clear urine with increased urination warrants evaluation.",0.0
+116,Is there a steroid cream that I can use for the bite on my face?,"You are a medical expert.
+Answer clearly:
+
+Is there a steroid cream that I can use for the bite on my face?
+
+Yes. A mild to moderate topical corticosteroid such as hydrocortisone 1% can be used for insect bites on the face to reduce itching and inflammation. Stronger steroids should be avoided on facial skin due to risk of atrophy.",0.5
+117,Is there a way to stop the Cymbalta and then start the Zoloft the next day?,"You are a medical expert.
+Answer clearly:
+
+Is there a way to stop the Cymbalta and then start the Zoloft the next day?
+
+Switching directly from duloxetine (Cymbalta) to sertraline (Zoloft) the next day is generally not recommended due to the risk of serotonin syndrome. A cross-taper or washout period under physician supervision is advised.",0.0

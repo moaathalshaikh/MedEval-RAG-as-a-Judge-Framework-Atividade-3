@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, modelResponsesTable, questionsTable, modelsTable, datasetsTable } from "@workspace/db";
 import {
   GenerateResponsesBody,
@@ -122,31 +122,39 @@ router.post("/responses/generate", async (req, res): Promise<void> => {
 });
 
 router.post("/responses/import", async (req, res): Promise<void> => {
-  const body = req.body as { responses?: unknown };
+  const body = req.body as { responses?: unknown; datasetId?: number };
   if (!body || !Array.isArray(body.responses)) {
-    res.status(400).json({ error: "Expected { responses: [{ questionId, modelId, responseText, inferenceTimeMs? }] }" });
+    res.status(400).json({ error: "Expected { responses: [...], datasetId? }" });
     return;
   }
 
-  const responses = body.responses as Array<{
-    questionId: number;
+  type ImportEntry = {
+    questionId?: number;
+    externalId?: string;
+    questionText?: string;
+    datasetId?: number;
     modelId: number;
     responseText: string;
     inferenceTimeMs?: number | null;
-  }>;
+  };
+
+  const responses = body.responses as ImportEntry[];
+  const datasetId = body.datasetId;
   let imported = 0;
   let skipped = 0;
   const errors: string[] = [];
 
+  // Cache questions for this dataset to avoid repeated DB calls
+  let questionCache: typeof questionsTable.$inferSelect[] | null = null;
+  async function getQuestionsForDataset(dsId: number) {
+    if (!questionCache) {
+      questionCache = await db.select().from(questionsTable).where(eq(questionsTable.datasetId, dsId));
+    }
+    return questionCache;
+  }
+
   for (const r of responses) {
     try {
-      const [question] = await db.select().from(questionsTable).where(eq(questionsTable.id, r.questionId));
-      if (!question) {
-        skipped++;
-        errors.push(`Question ${r.questionId} not found`);
-        continue;
-      }
-
       const [model] = await db.select().from(modelsTable).where(eq(modelsTable.id, r.modelId));
       if (!model) {
         skipped++;
@@ -154,8 +162,41 @@ router.post("/responses/import", async (req, res): Promise<void> => {
         continue;
       }
 
+      let resolvedQuestionId: number | undefined = r.questionId;
+
+      // Resolve by externalId (open-ended: "id" column in CSV → metadata.external_id)
+      if (!resolvedQuestionId && r.externalId) {
+        const dsId = r.datasetId ?? datasetId;
+        if (!dsId) { skipped++; errors.push(`externalId ${r.externalId}: datasetId required`); continue; }
+        const [found] = await db.select().from(questionsTable).where(
+          and(
+            eq(questionsTable.datasetId, dsId),
+            sql`${questionsTable.metadata}->>'external_id' = ${r.externalId}`
+          )
+        );
+        resolvedQuestionId = found?.id;
+        if (!resolvedQuestionId) { skipped++; errors.push(`No question with external_id=${r.externalId} in dataset ${dsId}`); continue; }
+      }
+
+      // Resolve by questionText prefix (MCQ: no ID in file, match by text)
+      if (!resolvedQuestionId && r.questionText) {
+        const dsId = r.datasetId ?? datasetId;
+        if (!dsId) { skipped++; errors.push(`questionText match: datasetId required`); continue; }
+        const prefix = r.questionText.trim().slice(0, 120);
+        const questions = await getQuestionsForDataset(dsId);
+        const found = questions.find(q => q.questionText.trim().startsWith(prefix) || prefix.startsWith(q.questionText.trim().slice(0, 120)));
+        resolvedQuestionId = found?.id;
+        if (!resolvedQuestionId) { skipped++; errors.push(`No match for question text: "${prefix.slice(0, 60)}..."`); continue; }
+      }
+
+      if (!resolvedQuestionId) {
+        skipped++;
+        errors.push(`Entry missing questionId/externalId/questionText`);
+        continue;
+      }
+
       await db.insert(modelResponsesTable).values({
-        questionId: r.questionId,
+        questionId: resolvedQuestionId,
         modelId: r.modelId,
         responseText: r.responseText,
         inferenceTimeMs: r.inferenceTimeMs ?? null,
