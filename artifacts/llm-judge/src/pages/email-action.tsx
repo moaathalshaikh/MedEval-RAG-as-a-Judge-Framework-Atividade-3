@@ -19,12 +19,13 @@ export default function EmailAction() {
 
   useEffect(() => {
     if (mode === "verifyEmail" && oobCode) {
+      // Our app received the link directly — apply the code ourselves
       applyActionCode(auth, oobCode)
         .then(() => setStatus("success"))
         .catch((err) => {
           const code = err?.code ?? "";
           // Firebase may have already applied the code on its own hosted page
-          // before redirecting here — in that case the email IS verified, show success.
+          // before redirecting here — email IS verified, show success.
           if (
             code === "auth/invalid-action-code" ||
             code === "auth/expired-action-code"
@@ -35,6 +36,10 @@ export default function EmailAction() {
             setStatus("error");
           }
         });
+    } else if (!mode && !oobCode) {
+      // Firebase verified the email on its own page and redirected here
+      // with no parameters — this is a post-verification redirect, show success.
+      setStatus("success");
     } else {
       setErrorMessage("Invalid or unsupported action link.");
       setStatus("error");
