@@ -85,7 +85,7 @@ export default function Results() {
                 </TableHeader>
                 <TableBody>
                   {results?.map((row) => (
-                    <ResultRowComponent key={`${row.responseId}-${row.evaluationId || 'none'}`} row={row} />
+                    <ResultRowComponent key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`} row={row} />
                   ))}
                   {(!results || results.length === 0) && (
                     <TableRow>

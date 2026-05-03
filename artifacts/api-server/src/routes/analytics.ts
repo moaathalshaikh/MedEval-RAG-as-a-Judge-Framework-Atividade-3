@@ -39,7 +39,7 @@ router.get("/analytics/model-comparison", async (_req, res): Promise<void> => {
     .select({
       modelId: modelsTable.id,
       modelName: modelsTable.modelName,
-      provider: modelsTable.provider,
+      modelSize: modelsTable.modelSize,
       avgScore: avg(judgeEvaluationsTable.score),
       totalEvaluations: count(judgeEvaluationsTable.id),
       totalResponses: sql<number>`cast(count(distinct ${modelResponsesTable.id}) as integer)`,
@@ -54,7 +54,7 @@ router.get("/analytics/model-comparison", async (_req, res): Promise<void> => {
   res.json(rows.map((r) => ({
     modelId: r.modelId,
     modelName: r.modelName,
-    provider: r.provider,
+    provider: r.modelSize ?? "",
     avgScore: r.avgScore != null ? Number(r.avgScore) : null,
     totalEvaluations: Number(r.totalEvaluations ?? 0),
     totalResponses: Number(r.totalResponses ?? 0),
