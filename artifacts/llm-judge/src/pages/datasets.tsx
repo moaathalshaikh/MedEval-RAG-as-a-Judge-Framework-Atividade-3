@@ -145,6 +145,7 @@ export default function Datasets() {
                     <TableHead className="pl-4 w-12">#</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Domain</TableHead>
+                    <TableHead>Created By</TableHead>
                     <TableHead className="text-right">Questions</TableHead>
                     <TableHead className="text-right pr-4">Actions</TableHead>
                   </TableRow>
@@ -155,9 +156,6 @@ export default function Datasets() {
                       <TableCell className="pl-4 text-muted-foreground text-xs">{dataset.id}</TableCell>
                       <TableCell>
                         <div className="font-medium">{dataset.datasetName}</div>
-                        {dataset.createdByName && (
-                          <div className="text-xs text-muted-foreground mt-0.5">by {dataset.createdByName}</div>
-                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -166,6 +164,9 @@ export default function Datasets() {
                             {dataset.datasetType === "MCQ" ? "MCQ" : "Open-ended"}
                           </Badge>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {dataset.createdByName ?? <span className="text-muted-foreground/40 italic">Unknown</span>}
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">{dataset.questionCount}</TableCell>
                       <TableCell className="text-right pr-4">
@@ -205,7 +206,7 @@ export default function Datasets() {
                   ))}
                   {(!datasets || datasets.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-16 text-sm text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">
                         No datasets yet. Create your first dataset.
                       </TableCell>
                     </TableRow>

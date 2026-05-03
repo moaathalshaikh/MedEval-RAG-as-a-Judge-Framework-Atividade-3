@@ -137,6 +137,7 @@ export default function Models() {
                     <TableHead>Model Name</TableHead>
                     <TableHead>Size</TableHead>
                     <TableHead>Notes</TableHead>
+                    <TableHead>Created By</TableHead>
                     <TableHead className="text-right pr-4">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -146,9 +147,6 @@ export default function Models() {
                       <TableCell className="pl-4 text-muted-foreground text-xs">{model.id}</TableCell>
                       <TableCell>
                         <div className="font-medium">{model.modelName}</div>
-                        {model.createdByName && (
-                          <div className="text-xs text-muted-foreground mt-0.5">by {model.createdByName}</div>
-                        )}
                       </TableCell>
                       <TableCell>
                         <span className="inline-block bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
@@ -156,6 +154,9 @@ export default function Models() {
                         </span>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{model.notes || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {model.createdByName ?? <span className="text-muted-foreground/40 italic">Unknown</span>}
+                      </TableCell>
                       <TableCell className="text-right pr-4">
                         <TooltipProvider>
                           {currentUserId && model.createdById === currentUserId ? (
@@ -186,7 +187,7 @@ export default function Models() {
                   ))}
                   {(!models || models.length === 0) && (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-16 text-sm text-muted-foreground">
+                      <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">
                         No models registered yet. Add your first model.
                       </TableCell>
                     </TableRow>

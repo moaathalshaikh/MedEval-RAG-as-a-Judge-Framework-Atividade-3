@@ -271,6 +271,9 @@ export default function DatasetDetail() {
           <h1 className="text-2xl font-bold text-foreground">{dataset.datasetName}</h1>
           <Badge variant="secondary">{dataset.domain}</Badge>
           <Badge variant="outline" className="text-primary border-primary/30 bg-primary/5">{dataset.questionCount} questions</Badge>
+          {dataset.createdByName && (
+            <span className="text-sm text-muted-foreground">by <span className="font-medium text-foreground">{dataset.createdByName}</span></span>
+          )}
           <div className="ml-auto">
             <TooltipProvider>
               {isOwner ? (
