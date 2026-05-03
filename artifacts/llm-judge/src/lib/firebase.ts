@@ -82,13 +82,22 @@ export async function signInWithEmail(email: string, password: string): Promise<
   return result.user;
 }
 
+/** Build ActionCodeSettings pointing to our branded /auth/action handler */
+function getActionCodeSettings() {
+  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  return {
+    url: `${window.location.origin}${base}/auth/action`,
+    handleCodeInApp: true,
+  };
+}
+
 /**
  * Register with email/password and send verification email.
  * Does NOT sign the user into the app — they must verify first.
  */
 export async function signUpWithEmail(email: string, password: string): Promise<void> {
   const result = await createUserWithEmailAndPassword(auth, email, password);
-  await sendEmailVerification(result.user);
+  await sendEmailVerification(result.user, getActionCodeSettings());
   // Sign out immediately — user must verify email before accessing the app
   await signOut(auth);
 }
@@ -96,7 +105,7 @@ export async function signUpWithEmail(email: string, password: string): Promise<
 /** Resend verification email to the currently signed-in (unverified) user */
 export async function resendVerificationEmail(email: string, password: string): Promise<void> {
   const result = await signInWithEmailAndPassword(auth, email, password);
-  await sendEmailVerification(result.user);
+  await sendEmailVerification(result.user, getActionCodeSettings());
   await signOut(auth);
 }
 

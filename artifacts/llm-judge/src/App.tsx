@@ -15,6 +15,7 @@ import Evaluate from "@/pages/evaluate";
 import Results from "@/pages/results";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
+import EmailAction from "@/pages/email-action";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,8 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          {/* Public route — accessible without authentication */}
+          <Route path="/auth/action" component={EmailAction} />
           <AuthGate>
             <Router />
           </AuthGate>
