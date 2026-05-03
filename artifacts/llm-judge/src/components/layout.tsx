@@ -1,6 +1,5 @@
 import { Link, useLocation } from "wouter";
 import {
-  Activity,
   Database,
   Play,
   BarChart2,
@@ -14,6 +13,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@workspace/replit-auth-web";
+import { auth, firebaseSignOut } from "@/lib/firebase";
+import { currentUnifiedUser } from "./auth-gate";
 
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -28,14 +29,21 @@ const NAV_ITEMS = [
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user, logout } = useAuth();
+  const { logout: replitLogout } = useAuth();
+  const user = currentUnifiedUser;
 
-  const displayName = user
-    ? user.firstName
-      ? `${user.firstName}${user.lastName ? " " + user.lastName : ""}`
-      : user.email ?? "User"
-    : null;
+  async function handleLogout() {
+    if (user?.provider === "firebase") {
+      // Sign out from Firebase + clear server session
+      await firebaseSignOut();
+      await fetch("/api/auth/firebase-logout", { method: "POST", credentials: "include" });
+      window.location.reload();
+    } else {
+      replitLogout();
+    }
+  }
 
+  const displayName = user?.displayName ?? null;
   const initials = displayName
     ? displayName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
     : "?";
@@ -121,7 +129,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
               {/* Logout button */}
               <button
-                onClick={logout}
+                onClick={handleLogout}
                 title="Log out"
                 className="shrink-0 p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
               >

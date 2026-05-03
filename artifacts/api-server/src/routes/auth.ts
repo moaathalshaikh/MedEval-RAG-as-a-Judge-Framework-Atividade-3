@@ -18,6 +18,7 @@ import {
   ISSUER_URL,
   type SessionData,
 } from "../lib/auth";
+import { verifyFirebaseToken } from "../lib/firebase-admin";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
@@ -185,6 +186,74 @@ router.get("/callback", async (req: Request, res: Response) => {
   const sid = await createSession(sessionData);
   setSessionCookie(res, sid);
   res.redirect(returnTo);
+});
+
+// ── Firebase Auth Session Exchange ─────────────────────────────────────────
+// Frontend sends Firebase ID token → server verifies, upserts user, creates session
+
+router.post("/auth/firebase-session", async (req: Request, res: Response) => {
+  const { idToken } = req.body;
+  if (!idToken || typeof idToken !== "string") {
+    res.status(400).json({ error: "idToken is required" });
+    return;
+  }
+
+  const claims = await verifyFirebaseToken(idToken);
+  if (!claims) {
+    res.status(401).json({ error: "Invalid Firebase token" });
+    return;
+  }
+
+  // Firebase uid prefixed to avoid collision with Replit user IDs
+  const userId = `fb_${claims.uid}`;
+  const nameParts = claims.name?.split(" ") ?? [];
+
+  const userData = {
+    id: userId,
+    email: claims.email,
+    firstName: nameParts[0] ?? null,
+    lastName: nameParts.slice(1).join(" ") || null,
+    profileImageUrl: claims.picture,
+  };
+
+  const [user] = await db
+    .insert(usersTable)
+    .values(userData)
+    .onConflictDoUpdate({
+      target: usersTable.id,
+      set: { ...userData, updatedAt: new Date() },
+    })
+    .returning();
+
+  const sessionData: SessionData = {
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      profileImageUrl: user.profileImageUrl,
+    },
+    access_token: idToken,
+    expires_at: Math.floor(Date.now() / 1000) + SESSION_TTL / 1000,
+  };
+
+  const sid = await createSession(sessionData);
+  res.cookie(SESSION_COOKIE, sid, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: SESSION_TTL,
+  });
+
+  res.json({ ok: true, user: sessionData.user });
+});
+
+// ── Firebase Logout ─────────────────────────────────────────────────────────
+router.post("/auth/firebase-logout", async (req: Request, res: Response) => {
+  const sid = getSessionId(req);
+  await clearSession(res, sid);
+  res.json({ ok: true });
 });
 
 router.get("/logout", async (req: Request, res: Response) => {
