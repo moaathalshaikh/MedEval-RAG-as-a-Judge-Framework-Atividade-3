@@ -134,9 +134,7 @@ export default function DatasetDetail() {
   const uploadDataset = useUploadDataset();
 
   const currentUserId = currentUnifiedUser?.id ?? null;
-  const isOwner = !!(currentUserId && dataset && (
-    !dataset.createdById || dataset.createdById === currentUserId
-  ));
+  const isOwner = !!(currentUserId && dataset?.createdById && dataset.createdById === currentUserId);
 
   const [uploadResult, setUploadResult] = useState<{ imported: number; skipped: number; duplicates?: number; errors: string[] } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
