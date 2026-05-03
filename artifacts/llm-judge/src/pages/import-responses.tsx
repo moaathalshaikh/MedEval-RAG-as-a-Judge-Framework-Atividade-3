@@ -6,7 +6,7 @@ import { useState, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Upload, CheckCircle2, SkipForward, AlertCircle, Download, Copy, ArrowRight } from "lucide-react";
+import { Upload, CheckCircle2, SkipForward, AlertCircle, Download, Copy, ArrowRight, Lightbulb } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
@@ -179,7 +179,7 @@ export default function ImportResponses() {
   const [parseError, setParseError]             = useState<string | null>(null);
   const [fileName, setFileName]                 = useState("");
   const [isSubmitting, setIsSubmitting]         = useState(false);
-  const [result, setResult]                     = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [result, setResult]                     = useState<{ imported: number; skipped: number; errors: string[]; suggestedDataset?: { id: number; name: string } | null } | null>(null);
 
   const selectedModel   = models?.find((m) => m.id === selectedModelId);
   const selectedDataset = datasets?.find((d) => d.id === selectedDatasetId);
@@ -537,23 +537,49 @@ export default function ImportResponses() {
                       </div>
                     );
                     if (noMatch) return (
-                      <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-2">
-                        <div className="flex items-start gap-3">
-                          <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
-                          <div className="space-y-1">
-                            <p className="text-sm font-semibold text-red-800">No questions matched in this dataset</p>
-                            <p className="text-xs text-red-700 leading-relaxed">
-                              None of the {result.skipped} {result.skipped === 1 ? "row" : "rows"} in the file could be linked to a question in <span className="font-medium">{selectedDataset?.datasetName}</span>.
-                              Make sure you selected the correct dataset and that the file format matches.
-                            </p>
+                      <div className="space-y-2">
+                        <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-2">
+                          <div className="flex items-start gap-3">
+                            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-red-800">No questions matched in this dataset</p>
+                              <p className="text-xs text-red-700 leading-relaxed">
+                                None of the {result.skipped} {result.skipped === 1 ? "row" : "rows"} in the file could be linked to a question in <span className="font-medium">{selectedDataset?.datasetName}</span>.
+                              </p>
+                            </div>
                           </div>
+                          <Button size="sm" variant="outline"
+                            className="w-full gap-2 border-red-300 text-red-800 hover:bg-red-100"
+                            onClick={downloadTemplate}
+                          >
+                            <Download className="h-3.5 w-3.5" /> Download correct template
+                          </Button>
                         </div>
-                        <Button size="sm" variant="outline"
-                          className="w-full gap-2 border-red-300 text-red-800 hover:bg-red-100"
-                          onClick={downloadTemplate}
-                        >
-                          <Download className="h-3.5 w-3.5" /> Download correct template
-                        </Button>
+                        {result.suggestedDataset && (
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+                            <div className="flex items-start gap-3">
+                              <Lightbulb className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+                              <div className="space-y-1">
+                                <p className="text-sm font-semibold text-blue-800">Suggested dataset detected</p>
+                                <p className="text-xs text-blue-700 leading-relaxed">
+                                  The questions in this file were found in{" "}
+                                  <span className="font-semibold">"{result.suggestedDataset.name}"</span>.
+                                  Switch to it and re-upload this file to import successfully.
+                                </p>
+                              </div>
+                            </div>
+                            <Button size="sm"
+                              className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                              onClick={() => {
+                                setSelectedDatasetId(result.suggestedDataset!.id);
+                                resetFile();
+                              }}
+                            >
+                              Switch to "{result.suggestedDataset.name}"
+                              <ArrowRight className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     );
                     // Mixed / unknown reason

@@ -221,7 +221,45 @@ router.post("/responses/import", async (req, res): Promise<void> => {
     }
   }
 
-  res.json({ imported, skipped, errors });
+  // Smart dataset detection — when ALL entries failed due to "No match",
+  // search other datasets to suggest the correct one.
+  let suggestedDataset: { id: number; name: string } | null = null;
+  const allNoMatch = imported === 0 && errors.length > 0 &&
+    errors.every((e) => e.startsWith("No match:"));
+
+  if (allNoMatch) {
+    // Collect up to 5 unique questionTexts that failed
+    const sampleTexts = responses
+      .filter((r) => r.questionText)
+      .slice(0, 5)
+      .map((r) => r.questionText!.trim().slice(0, 80));
+
+    if (sampleTexts.length > 0) {
+      // Load all datasets except the one already tried
+      const allDatasets = await db.select().from(datasetsTable);
+      const otherDatasets = allDatasets.filter((d) => d.id !== datasetId);
+
+      for (const ds of otherDatasets) {
+        const dsQuestions = await db.select().from(questionsTable)
+          .where(eq(questionsTable.datasetId, ds.id));
+
+        const matchCount = sampleTexts.filter((sample) =>
+          dsQuestions.some((q) =>
+            q.questionText.trim().startsWith(sample.slice(0, 60)) ||
+            sample.startsWith(q.questionText.trim().slice(0, 60))
+          )
+        ).length;
+
+        // If majority of samples match this dataset, suggest it
+        if (matchCount >= Math.ceil(sampleTexts.length * 0.6)) {
+          suggestedDataset = { id: ds.id, name: ds.datasetName };
+          break;
+        }
+      }
+    }
+  }
+
+  res.json({ imported, skipped, errors, suggestedDataset });
 });
 
 router.get("/responses/:id", async (req, res): Promise<void> => {
