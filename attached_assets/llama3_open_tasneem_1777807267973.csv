@@ -1,0 +1,100 @@
+id,question,answer,must_have_score
+101,"Is it normal for tendinitis to only affect just extension, and not both extension/flexion?","You are a medical expert.
+Answer clearly:
+
+Is it normal for tendinitis to only affect just extension, and not both extension/flexion?
+Is it normal for tendinitis to only affect just extension, and not both extension/flexion?",0.67604122041652
+102,Is it normal to have really bad abdominal cramping with the stomach flu?,"You are a medical expert.
+Answer clearly:
+
+Is it normal to have really bad abdominal cramping with the stomach flu?
+
+I have been having really bad stomach cramps for the past 2 days. I have been vomiting and having diarrhea. I have been drinking a lot of water. I have been taking ibuprofen. I am wondering if I have the stomach flu?",0.37026528570936895
+103,Is it ok to take the antibiotic along with my thyroid meds?,"You are a medical expert.
+Answer clearly:
+
+Is it ok to take the antibiotic along with my thyroid meds?
+
+Is it ok to take the antibiotic along with my thyroid meds?",0.24288777575705267
+104,Is it safe to take zyrtec / Claritin while breastfeeding?,"You are a medical expert.
+Answer clearly:
+
+Is it safe to take zyrtec / Claritin while breastfeeding?
+
+Yes, it is safe to take Zyrtec / Claritin while breastfeeding. It is not expected to be harmful to the baby.",0.5266207224888181
+105,Is low lipase related to pancreatic cancer or is it mostly related to chronic pancreatitis or cystic fibrosis.,"You are a medical expert.
+Answer clearly:
+
+Is low lipase related to pancreatic cancer or is it mostly related to chronic pancreatitis or cystic fibrosis.
+Is low lipase related to pancreatic cancer or is it mostly related to chronic pancreatitis or cystic fibrosis.",0.4038958947319793
+106,Is meloxicam same as naproxen?,"You are a medical expert.
+Answer clearly:
+
+Is meloxicam same as naproxen?
+Meloxicam and naproxen are both NSAIDs. They are both used to treat pain and inflammation. However, they are not the same drug. Meloxicam is a selective COX-2 inhibitor, while naproxen is a nonselective COX inhibitor. They have different chemical structures and different pharmacokinetic profiles.",0.5781758054343583
+107,Is mycofenolate an immunosuppressant?,"You are a medical expert.
+Answer clearly:
+
+Is mycofenolate an immunosuppressant?
+Yes or no?",0.5042813502354543
+108,Is pepto peptobismol?,"You are a medical expert.
+Answer clearly:
+
+Is pepto peptobismol?
+
+Is pepto peptobismol?",0.7084851413745207
+109,Is poison ivy contagious between people?,"You are a medical expert.
+Answer clearly:
+
+Is poison ivy contagious between people?
+Yes, poison ivy is contagious between people. The rash is caused by an oil found in the sap of poison ivy plants. The oil can be transferred from the skin of a person who has come into contact with poison ivy to another person.",0.16251069240552807
+110,Is pyridium the one that makes the urine orange?,"You are a medical expert.
+Answer clearly:
+
+Is pyridium the one that makes the urine orange?
+
+Is pyridium the one that makes the urine orange?",0.9403574472380314
+111,Is saxenda a glp1 blocker as well?,"You are a medical expert.
+Answer clearly:
+
+Is saxenda a glp1 blocker as well?
+It is a glp1 agonist.",1.0
+112,Is that normal for shoulder pain to come with breathing,"You are a medical expert.
+Answer clearly:
+
+Is that normal for shoulder pain to come with breathing
+difficulty? Is it normal for the pain to come with a
+clicking sound? Is it normal for the pain to come with a
+popping sound? Is it normal for the pain to come with a
+grinding sound? Is it normal for the pain to come with a
+locking of the joint? Is it normal for the pain to come with a
+burning sensation? Is it normal for the pain to come with a
+tingling sensation? Is it normal for the pain to come with a
+numbness? Is it normal for the pain to come with a swelling?",0.9739011090131646
+113,Is the miconazole powder the same as regular baby powder?,"You are a medical expert.
+Answer clearly:
+
+Is the miconazole powder the same as regular baby powder?
+Yes or No. If yes, explain.",0.6521506442977746
+114,Is there a cream that you can prescribe for anal fissure like topical nitro ?,"You are a medical expert.
+Answer clearly:
+
+Is there a cream that you can prescribe for anal fissure like topical nitro ?
+Is there a cream that you can prescribe for anal fissure like topical nitro ?",0.8709811428530414
+115,Is there a reason why my urine is clear,"You are a medical expert.
+Answer clearly:
+
+Is there a reason why my urine is clear
+Is there a reason why my urine is clear",0.24700183685451443
+116,Is there a steroid cream that I can use for the bite on my face?,"You are a medical expert.
+Answer clearly:
+
+Is there a steroid cream that I can use for the bite on my face?
+
+Yes, there are many steroid creams that you can use for the bite on your face. However, it is important to note that steroid creams can cause thinning of the skin and should only be used for a short period of time. It is also important to protect the area from the sun while using the steroid cream.",0.05751290953282706
+117,Is there a way to stop the Cymbalta and then start the Zoloft the next day?,"You are a medical expert.
+Answer clearly:
+
+Is there a way to stop the Cymbalta and then start the Zoloft the next day?
+
+Answer: Yes, you can stop the Cymbalta and start the Zoloft the next day.",0.8353211375551151
