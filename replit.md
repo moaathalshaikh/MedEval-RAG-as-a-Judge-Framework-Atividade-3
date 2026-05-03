@@ -2,7 +2,7 @@
 
 ## Overview
 
-Full-stack AI model evaluation system using LLM-as-a-Judge methodology. Allows researchers to benchmark and compare AI models (OpenAI, DeepSeek, Claude) by running inference pipelines and having a judge LLM score responses using a standardized rubric.
+**MedEval Judge** — Full-stack Medical AI Model Evaluation System using LLM-as-a-Judge methodology. Allows researchers to benchmark and compare SLMs (Small Language Models) by importing their responses and having a judge LLM score them using a standardized rubric (1–5). Each user has their own private workspace with isolated API keys.
 
 ## Stack
 
@@ -10,11 +10,12 @@ Full-stack AI model evaluation system using LLM-as-a-Judge methodology. Allows r
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **Frontend**: React + Vite (artifacts/llm-judge) — dark navy theme
+- **Frontend**: React + Vite (artifacts/llm-judge) — light theme, green primary
 - **API framework**: Express 5 (artifacts/api-server)
 - **Database**: PostgreSQL + Drizzle ORM
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
+- **Auth**: Replit Auth (OIDC + PKCE, cookie-based sessions in PostgreSQL)
 - **Build**: esbuild (CJS bundle)
 - **Charts**: Recharts
 
@@ -25,26 +26,46 @@ Full-stack AI model evaluation system using LLM-as-a-Judge methodology. Allows r
 - `lib/db` — Drizzle ORM database layer
 - `lib/api-spec/openapi.yaml` — OpenAPI specification (source of truth)
 - `lib/api-client-react` — Generated React Query hooks
-- `lib/api-zod` — Generated Zod validation schemas
+- `lib/api-zod` — Generated Zod validation schemas (auth schemas appended manually at bottom)
+- `lib/replit-auth-web` — Browser auth hook (`useAuth()`) for React
 
 ## Database Schema
 
-- `models` — AI model registry (OpenAI, DeepSeek, Claude)
+- `users` — Replit Auth users (id, email, firstName, lastName, profileImageUrl)
+- `sessions` — Server-side sessions for Replit Auth (sid, sess JSONB, expire)
+- `models` — AI model registry
 - `datasets` — Question datasets (Medical, Legal, General domains)
-- `questions` — Questions with gold answers, supports MCQ and OPEN_ENDED, metadata stored as JSONB
+- `questions` — Questions with gold answers, supports MCQ and OPEN_ENDED, metadata as JSONB
 - `model_responses` — LLM-generated responses with inference time tracking
-- `judge_evaluations` — LLM-as-a-Judge scores (1-5) with Chain-of-Thought reasoning
-- `settings` — API key storage for LLM providers
+- `judge_evaluations` — LLM-as-a-Judge scores (1-5) with Chain-of-Thought reasoning; includes `judge_model_version` and `confirmed_model` audit columns
+- `judge_models` — Provider rows (OpenAI, Gemini, Claude, DeepSeek); IDs 9–12
+- `settings` — **Per-user** key-value store; UNIQUE(user_id, key); FK → users.id
+
+## Settings Keys (all per-user)
+
+- `openai_api_key`, `gemini_api_key`, `claude_api_key`, `deepseek_api_key` — provider API keys
+- `judge_model_id` — int → judge_models.id (which provider is the judge)
+- `judge_model_version` — free text model name (e.g. "gpt-4o-mini")
+
+## Authentication Flow
+
+1. Frontend detects unauthenticated state → shows `AuthGate` login screen
+2. User clicks "Log in" → redirected to `/api/login?returnTo=<base>`
+3. Replit OIDC handles auth → callback to `/api/callback`
+4. Session created in `sessions` table, cookie `sid` set
+5. All settings/evaluations routes require `req.isAuthenticated()` (401 if not)
+6. API keys stored per `user_id` → completely isolated between users
 
 ## Key Features
 
+- **Authentication**: Replit Auth with per-user isolated workspaces
+- **Dynamic Model Lists**: `/api/settings/available-models?provider=OpenAI` fetches real models from each provider using the user's API key
 - **Data Ingestion**: Upload CSV/JSONL files to create question datasets
-- **Inference Pipeline**: Send questions to registered models, store responses
-- **LLM-as-a-Judge**: Use any registered model as a judge with a standardized rubric (1-5 scoring)
-- **MCQ Support**: Automatic binary scoring (correct=5, wrong=1) for multiple choice
-- **Open-ended Evaluation**: Rubric-based scoring with must_have/nice_to_have metadata
+- **LLM-as-a-Judge**: Judge any response set using user's configured judge LLM
+- **MCQ Support**: Automatic binary scoring (correct=5, wrong=1)
+- **Open-ended Evaluation**: Rubric-based with must_have/nice_to_have metadata
 - **Analytics**: Model comparison, score distribution, Spearman correlation
-- **Traceability**: Full Question → Response → Evaluation chain
+- **Audit Trail**: `judge_model_version` + `confirmed_model` in evaluations
 
 ## Score Rubric
 
@@ -57,11 +78,20 @@ Full-stack AI model evaluation system using LLM-as-a-Judge methodology. Allows r
 ## LLM Integration
 
 Unified interface in `artifacts/api-server/src/lib/llm.ts` supports:
-- OpenAI (gpt-4o, gpt-3.5-turbo, etc.)
-- DeepSeek (deepseek-chat, etc.)
-- Claude/Anthropic (claude-3-5-sonnet-20241022, etc.)
+- OpenAI (gpt-4o, gpt-4o-mini, o1, o3, o4, etc.)
+- Google Gemini (gemini-2.0-flash, gemini-1.5-pro, etc.)
+- Anthropic Claude (claude-3-5-sonnet, claude-3-5-haiku, etc.)
+- DeepSeek (deepseek-chat, deepseek-reasoner, etc.)
 
-API keys stored encrypted in `settings` table, configured via `/settings` page.
+`callLLM()` returns `{ text, inferenceTimeMs, confirmedModel }` — confirmedModel is the model ID echoed back by the provider.
+
+## Dynamic Model List Endpoints
+
+Provider APIs called by the backend using the authenticated user's key:
+- **OpenAI**: `GET https://api.openai.com/v1/models` → filter for gpt-/o1/o3/o4 prefixes
+- **Gemini**: `GET https://generativelanguage.googleapis.com/v1beta/models?key=...` → filter generateContent models
+- **Claude**: `GET https://api.anthropic.com/v1/models`
+- **DeepSeek**: `GET https://api.deepseek.com/v1/models`
 
 ## Key Commands
 
@@ -74,6 +104,19 @@ API keys stored encrypted in `settings` table, configured via `/settings` page.
 
 ## API Endpoints
 
+### Auth (no auth required)
+- `GET /api/auth/user` — current auth state (`{user: AuthUser | null}`)
+- `GET /api/login` — OIDC redirect (web login)
+- `GET /api/callback` — OIDC callback
+- `GET /api/logout` — clear session + OIDC end-session redirect
+
+### Settings (auth required)
+- `GET/POST /api/settings/api-keys` — per-user API key management
+- `GET/POST /api/settings/judge-model` — per-user judge model config
+- `GET /api/settings/judge-models` — provider list (public)
+- `GET /api/settings/available-models?provider=X` — live model list from provider API
+
+### Data (auth required)
 - `GET/POST /api/models` — model management
 - `GET/PATCH/DELETE /api/models/:id`
 - `GET/POST /api/datasets` — dataset management
@@ -84,13 +127,13 @@ API keys stored encrypted in `settings` table, configured via `/settings` page.
 - `POST /api/responses/generate` — run inference pipeline
 - `GET /api/evaluations` — list evaluations
 - `POST /api/evaluations/run` — run LLM-as-a-Judge
-- `GET /api/analytics/summary` — system statistics
-- `GET /api/analytics/model-comparison` — compare models
-- `GET /api/analytics/score-distribution` — score distribution
-- `GET /api/analytics/results` — full traceability results
-- `GET /api/analytics/spearman` — Spearman correlation analysis
-- `GET/POST /api/settings/api-keys` — API key management
+- `GET /api/evaluations/:id`
+- `GET /api/analytics/summary`
+- `GET /api/analytics/model-comparison`
+- `GET /api/analytics/score-distribution`
+- `GET /api/analytics/results`
+- `GET /api/analytics/spearman`
 
 ## Orval Config Note
 
-The `lib/api-spec/package.json` codegen script patches `lib/api-zod/src/index.ts` after codegen to resolve a barrel export conflict that Orval generates when using `mode: "single"`.
+The `lib/api-spec/package.json` codegen script patches `lib/api-zod/src/index.ts` after codegen to resolve a barrel export conflict. Auth schemas (`AuthUser`, `GetCurrentAuthUserResponse`, etc.) are manually appended to the bottom of `lib/api-zod/src/generated/api.ts` since they don't go through the OpenAPI codegen pipeline.

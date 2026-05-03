@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable, judgeModelsTable, settingsTable } from "@workspace/db";
 import {
@@ -11,7 +11,24 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-const JUDGE_MODEL_KEY = "judge_model_id";
+const JUDGE_MODEL_ID_KEY = "judge_model_id";
+const JUDGE_MODEL_VERSION_KEY = "judge_model_version";
+
+function requireAuth(req: Request, res: Response): boolean {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+async function getUserSetting(userId: string, key: string): Promise<string | null> {
+  const [row] = await db
+    .select()
+    .from(settingsTable)
+    .where(and(eq(settingsTable.userId, userId), eq(settingsTable.key, key)));
+  return row?.value ?? null;
+}
 
 function formatEval(e: typeof judgeEvaluationsTable.$inferSelect, extras?: {
   questionText?: string | null;
@@ -30,13 +47,14 @@ function formatEval(e: typeof judgeEvaluationsTable.$inferSelect, extras?: {
     responseText: extras?.responseText ?? null,
     modelName: extras?.modelName ?? null,
     judgeModelName: extras?.judgeModelName ?? null,
-    // Audit trail: what was sent vs what provider confirmed
     judgeModelVersion: e.judgeModelVersion ?? null,
     confirmedModel: e.confirmedModel ?? null,
   };
 }
 
-router.get("/evaluations", async (req, res): Promise<void> => {
+router.get("/evaluations", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+
   const parsed = ListEvaluationsQueryParams.safeParse(req.query);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -72,7 +90,10 @@ router.get("/evaluations", async (req, res): Promise<void> => {
   })));
 });
 
-router.post("/evaluations/run", async (req, res): Promise<void> => {
+router.post("/evaluations/run", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
   const parsed = RunJudgeBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -81,15 +102,18 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
 
   const { judgeModelId, responseIds, datasetId, modelId } = parsed.data;
 
-  // Resolve judge model: use provided judgeModelId or fall back to saved setting
+  // Resolve judge model from user settings
   let resolvedJudgeModelId = judgeModelId;
-  if (!resolvedJudgeModelId) {
-    const [setting] = await db.select().from(settingsTable).where(eq(settingsTable.key, JUDGE_MODEL_KEY));
-    if (setting?.value) resolvedJudgeModelId = parseInt(setting.value);
-  }
+  let resolvedModelVersion: string | null = null;
 
   if (!resolvedJudgeModelId) {
-    res.status(400).json({ error: "No judge model configured. Please select one in Settings." });
+    const storedId = await getUserSetting(uid, JUDGE_MODEL_ID_KEY);
+    if (storedId) resolvedJudgeModelId = parseInt(storedId);
+  }
+  resolvedModelVersion = await getUserSetting(uid, JUDGE_MODEL_VERSION_KEY);
+
+  if (!resolvedJudgeModelId || !resolvedModelVersion) {
+    res.status(400).json({ error: "No judge model configured. Please configure one in Settings." });
     return;
   }
 
@@ -109,59 +133,64 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
   if (responseIds && responseIds.length > 0) {
     for (const rid of responseIds) {
       const [row] = await db
-        .select({
-          response: modelResponsesTable,
-          question: questionsTable,
-          model: modelsTable,
-        })
+        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
         .from(modelResponsesTable)
         .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
         .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId))
         .where(eq(modelResponsesTable.id, rid));
       if (row) responseRows.push(row as typeof responseRows[0]);
     }
-  } else {
-    const conditions = [];
-    if (datasetId != null) {
-      const allQ = await db.select().from(questionsTable).where(eq(questionsTable.datasetId, datasetId));
-      const qIds = allQ.map((q) => q.id);
-      if (qIds.length === 0) {
-        res.json({ evaluated: 0, skipped: 0, errors: ["No questions in dataset"] });
-        return;
-      }
-      const allResponses = await db
-        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
-        .from(modelResponsesTable)
-        .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
-        .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
-
-      responseRows = allResponses.filter((r) =>
-        r.question && qIds.includes(r.question.id) &&
-        (modelId == null || r.response.modelId === modelId)
-      ) as typeof responseRows;
-    } else if (modelId != null) {
-      const allResponses = await db
-        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
-        .from(modelResponsesTable)
-        .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
-        .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId))
-        .where(eq(modelResponsesTable.modelId, modelId));
-      responseRows = allResponses as typeof responseRows;
-    } else {
-      const allResponses = await db
-        .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
-        .from(modelResponsesTable)
-        .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
-        .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
-      responseRows = allResponses as typeof responseRows;
+  } else if (datasetId != null) {
+    const allQ = await db.select().from(questionsTable).where(eq(questionsTable.datasetId, datasetId));
+    const qIds = allQ.map((q) => q.id);
+    if (qIds.length === 0) {
+      res.json({ evaluated: 0, skipped: 0, errors: ["No questions in dataset"] });
+      return;
     }
+    const allResponses = await db
+      .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
+      .from(modelResponsesTable)
+      .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
+      .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
+    responseRows = allResponses.filter((r) =>
+      r.question && qIds.includes(r.question.id) &&
+      (modelId == null || r.response.modelId === modelId)
+    ) as typeof responseRows;
+  } else if (modelId != null) {
+    const allResponses = await db
+      .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
+      .from(modelResponsesTable)
+      .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
+      .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId))
+      .where(eq(modelResponsesTable.modelId, modelId));
+    responseRows = allResponses as typeof responseRows;
+  } else {
+    const allResponses = await db
+      .select({ response: modelResponsesTable, question: questionsTable, model: modelsTable })
+      .from(modelResponsesTable)
+      .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
+      .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
+    responseRows = allResponses as typeof responseRows;
+  }
+
+  // Get user's API key for the provider
+  const keyMap: Record<string, string> = {
+    OpenAI: "openai_api_key",
+    Gemini: "gemini_api_key",
+    Claude: "claude_api_key",
+    DeepSeek: "deepseek_api_key",
+  };
+  const apiKey = await getUserSetting(uid, keyMap[judgeModel.provider] ?? "");
+  if (!apiKey) {
+    res.status(400).json({ error: `${judgeModel.provider} API key not configured in your settings.` });
+    return;
   }
 
   let evaluated = 0;
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const { response, question, model } of responseRows) {
+  for (const { response, question } of responseRows) {
     if (!question) {
       skipped++;
       errors.push(`Response ${response.id}: question not found`);
@@ -179,8 +208,9 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
 
       const { text, confirmedModel } = await callLLM(
         judgeModel.provider as LLMProvider,
-        judgeModel.modelVersion,
-        prompt
+        resolvedModelVersion!,
+        prompt,
+        apiKey
       );
 
       const result = parseJudgeResponse(text);
@@ -195,8 +225,8 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
         judgeModelId: resolvedJudgeModelId!,
         score: result.score,
         reasoning: result.reasoning,
-        judgeModelVersion: judgeModel.modelVersion,
-        confirmedModel: confirmedModel ?? judgeModel.modelVersion,
+        judgeModelVersion: resolvedModelVersion,
+        confirmedModel: confirmedModel ?? resolvedModelVersion,
       });
 
       evaluated++;
@@ -210,7 +240,9 @@ router.post("/evaluations/run", async (req, res): Promise<void> => {
   res.json({ evaluated, skipped, errors });
 });
 
-router.get("/evaluations/:id", async (req, res): Promise<void> => {
+router.get("/evaluations/:id", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+
   const params = GetEvaluationParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });

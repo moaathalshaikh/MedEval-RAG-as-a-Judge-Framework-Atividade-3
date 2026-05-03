@@ -1,33 +1,19 @@
 import { logger } from "./logger";
-import { db, settingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
 
 export type LLMProvider = "OpenAI" | "Gemini" | "Claude" | "DeepSeek";
-
-async function getApiKey(provider: LLMProvider): Promise<string | null> {
-  const keyMap: Record<LLMProvider, string> = {
-    OpenAI: "openai_api_key",
-    Gemini: "gemini_api_key",
-    Claude: "claude_api_key",
-    DeepSeek: "deepseek_api_key",
-  };
-  const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, keyMap[provider]));
-  return row?.value ?? null;
-}
 
 export interface LLMResult {
   text: string;
   inferenceTimeMs: number;
-  /** Model name confirmed by the provider in their response body */
   confirmedModel: string | null;
 }
 
 export async function callLLM(
   provider: LLMProvider,
   modelVersion: string,
-  prompt: string
+  prompt: string,
+  apiKey: string
 ): Promise<LLMResult> {
-  const apiKey = await getApiKey(provider);
   const start = Date.now();
 
   if (provider === "OpenAI") {
@@ -47,11 +33,7 @@ export async function callLLM(
       model: string;
       choices: Array<{ message: { content: string } }>;
     };
-    return {
-      text: data.choices[0]?.message?.content ?? "",
-      inferenceTimeMs: Date.now() - start,
-      confirmedModel: data.model ?? null,
-    };
+    return { text: data.choices[0]?.message?.content ?? "", inferenceTimeMs: Date.now() - start, confirmedModel: data.model ?? null };
   }
 
   if (provider === "Gemini") {
@@ -73,7 +55,6 @@ export async function callLLM(
     return {
       text: data.candidates[0]?.content?.parts[0]?.text ?? "",
       inferenceTimeMs: Date.now() - start,
-      // Gemini returns modelVersion in the response body
       confirmedModel: data.modelVersion ? `models/${data.modelVersion}` : `models/${modelVersion}`,
     };
   }
@@ -82,27 +63,12 @@ export async function callLLM(
     if (!apiKey) throw new Error("Claude (Anthropic) API key not configured");
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: modelVersion,
-        max_tokens: 1024,
-        messages: [{ role: "user", content: prompt }],
-      }),
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: modelVersion, max_tokens: 1024, messages: [{ role: "user", content: prompt }] }),
     });
     if (!response.ok) throw new Error(`Claude error: ${await response.text()}`);
-    const data = (await response.json()) as {
-      model: string;
-      content: Array<{ text: string }>;
-    };
-    return {
-      text: data.content[0]?.text ?? "",
-      inferenceTimeMs: Date.now() - start,
-      confirmedModel: data.model ?? null,
-    };
+    const data = (await response.json()) as { model: string; content: Array<{ text: string }> };
+    return { text: data.content[0]?.text ?? "", inferenceTimeMs: Date.now() - start, confirmedModel: data.model ?? null };
   }
 
   if (provider === "DeepSeek") {
@@ -110,23 +76,11 @@ export async function callLLM(
     const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: modelVersion,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 1024,
-        temperature: 0.7,
-      }),
+      body: JSON.stringify({ model: modelVersion, messages: [{ role: "user", content: prompt }], max_tokens: 1024, temperature: 0.7 }),
     });
     if (!response.ok) throw new Error(`DeepSeek error: ${await response.text()}`);
-    const data = (await response.json()) as {
-      model: string;
-      choices: Array<{ message: { content: string } }>;
-    };
-    return {
-      text: data.choices[0]?.message?.content ?? "",
-      inferenceTimeMs: Date.now() - start,
-      confirmedModel: data.model ?? null,
-    };
+    const data = (await response.json()) as { model: string; choices: Array<{ message: { content: string } }> };
+    return { text: data.choices[0]?.message?.content ?? "", inferenceTimeMs: Date.now() - start, confirmedModel: data.model ?? null };
   }
 
   throw new Error(`Unknown provider: ${provider}`);
@@ -164,12 +118,8 @@ Provide your evaluation in exactly this JSON format (no other text):
 {"score": <1 or 5>, "reasoning": "<brief explanation>"}`;
   }
 
-  const mustHave = metadata.must_have
-    ? `\nRequired elements (must_have): ${JSON.stringify(metadata.must_have)}`
-    : "";
-  const niceToHave = metadata.nice_to_have
-    ? `\nBonus elements (nice_to_have): ${JSON.stringify(metadata.nice_to_have)}`
-    : "";
+  const mustHave = metadata.must_have ? `\nRequired elements (must_have): ${JSON.stringify(metadata.must_have)}` : "";
+  const niceToHave = metadata.nice_to_have ? `\nBonus elements (nice_to_have): ${JSON.stringify(metadata.nice_to_have)}` : "";
 
   return `You are an expert evaluator. Evaluate the model's response to the following question.
 
@@ -192,18 +142,12 @@ export function parseJudgeResponse(text: string): { score: number; reasoning: st
       const parsed = JSON.parse(jsonMatch[0]) as { score: unknown; reasoning: unknown };
       const score = Number(parsed.score);
       const reasoning = String(parsed.reasoning ?? "");
-      if (score >= 1 && score <= 5 && reasoning) {
-        return { score: Math.round(score), reasoning };
-      }
+      if (score >= 1 && score <= 5 && reasoning) return { score: Math.round(score), reasoning };
     }
   } catch (e) {
     logger.warn({ text, error: String(e) }, "Failed to parse judge response as JSON");
   }
-
   const scoreMatch = text.match(/\bscore[:\s]+([1-5])\b/i) ?? text.match(/\b([1-5])\s*\/\s*5\b/);
-  if (scoreMatch) {
-    return { score: parseInt(scoreMatch[1], 10), reasoning: text };
-  }
-
+  if (scoreMatch) return { score: parseInt(scoreMatch[1], 10), reasoning: text };
   return null;
 }

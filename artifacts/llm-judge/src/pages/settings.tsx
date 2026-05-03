@@ -3,6 +3,7 @@ import {
   useSaveApiKeys,
   getGetApiKeyStatusQueryKey,
 } from "@workspace/api-client-react";
+import { useAuth } from "@workspace/replit-auth-web";
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X } from "lucide-react";
+import { Check, X, RefreshCw, ChevronDown, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
 
@@ -47,17 +48,18 @@ const PROVIDER_META: Record<string, {
   border: string;
   placeholder: string;
   hint: string;
+  statusKey: "openai" | "gemini" | "deepseek" | "claude";
 }> = {
-  OpenAI:   { label: "OpenAI",   dot: "bg-emerald-500", ring: "ring-emerald-300", bg: "bg-emerald-50",  text: "text-emerald-700", border: "border-emerald-300", placeholder: "e.g. gpt-4o-mini",              hint: "gpt-4o · gpt-4o-mini · gpt-4-turbo" },
-  Gemini:   { label: "Google",   dot: "bg-blue-500",    ring: "ring-blue-300",    bg: "bg-blue-50",     text: "text-blue-700",    border: "border-blue-300",    placeholder: "e.g. gemini-2.0-flash",         hint: "gemini-2.0-flash · gemini-1.5-pro" },
-  Claude:   { label: "Anthropic",dot: "bg-orange-500",  ring: "ring-orange-300",  bg: "bg-orange-50",   text: "text-orange-700",  border: "border-orange-300",  placeholder: "e.g. claude-3-5-haiku-20241022",hint: "claude-3-5-sonnet-20241022 · claude-3-5-haiku-20241022" },
-  DeepSeek: { label: "DeepSeek", dot: "bg-purple-500",  ring: "ring-purple-300",  bg: "bg-purple-50",   text: "text-purple-700",  border: "border-purple-300",  placeholder: "e.g. deepseek-chat",            hint: "deepseek-chat · deepseek-reasoner" },
+  OpenAI:   { label: "OpenAI",    dot: "bg-emerald-500", ring: "ring-emerald-300", bg: "bg-emerald-50",  text: "text-emerald-700", border: "border-emerald-300", placeholder: "e.g. gpt-4o-mini",              hint: "gpt-4o · gpt-4o-mini · gpt-4-turbo",                    statusKey: "openai" },
+  Gemini:   { label: "Google",    dot: "bg-blue-500",    ring: "ring-blue-300",    bg: "bg-blue-50",     text: "text-blue-700",    border: "border-blue-300",    placeholder: "e.g. gemini-2.0-flash",         hint: "gemini-2.0-flash · gemini-1.5-pro",                      statusKey: "gemini" },
+  Claude:   { label: "Anthropic", dot: "bg-orange-500",  ring: "ring-orange-300",  bg: "bg-orange-50",   text: "text-orange-700",  border: "border-orange-300",  placeholder: "e.g. claude-3-5-haiku-20241022",hint: "claude-3-5-sonnet-20241022 · claude-3-5-haiku-20241022", statusKey: "claude" },
+  DeepSeek: { label: "DeepSeek",  dot: "bg-purple-500",  ring: "ring-purple-300",  bg: "bg-purple-50",   text: "text-purple-700",  border: "border-purple-300",  placeholder: "e.g. deepseek-chat",            hint: "deepseek-chat · deepseek-reasoner",                      statusKey: "deepseek" },
 };
 
 function useJudgeModel() {
   return useQuery<JudgeModelConfig>({
     queryKey: ["settings", "judge-model"],
-    queryFn: () => fetch("/api/settings/judge-model").then((r) => r.json()),
+    queryFn: () => fetch("/api/settings/judge-model", { credentials: "include" }).then((r) => r.json()),
   });
 }
 
@@ -75,6 +77,7 @@ function useSetJudgeModel() {
       fetch("/api/settings/judge-model", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(body),
       }).then(async (r) => {
         if (!r.ok) throw await r.json();
@@ -86,7 +89,20 @@ function useSetJudgeModel() {
   });
 }
 
+function useAvailableModels(provider: string | null, enabled: boolean) {
+  return useQuery<{ models: string[]; error?: string }>({
+    queryKey: ["settings", "available-models", provider],
+    queryFn: () =>
+      fetch(`/api/settings/available-models?provider=${encodeURIComponent(provider!)}`, { credentials: "include" })
+        .then((r) => r.json()),
+    enabled: !!provider && enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+}
+
 export default function Settings() {
+  const { user, logout } = useAuth();
   const { data: status, isLoading: isLoadingKeys } = useGetApiKeyStatus();
   const { data: judgeModel, isLoading: isLoadingJudge } = useJudgeModel();
   const { data: providers, isLoading: isLoadingProviders } = useJudgeProviders();
@@ -97,6 +113,18 @@ export default function Settings() {
 
   const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
   const [modelVersion, setModelVersion] = useState("");
+  const [fetchModelsEnabled, setFetchModelsEnabled] = useState(false);
+  const [showModelList, setShowModelList] = useState(false);
+
+  const selectedProvider = providers?.find((p) => p.id === selectedProviderId);
+  const selectedMeta = selectedProvider ? PROVIDER_META[selectedProvider.provider] : null;
+  const selectedProviderName = selectedProvider?.provider ?? null;
+  const hasApiKey = selectedMeta ? !!(status?.[selectedMeta.statusKey]) : false;
+
+  const { data: modelsData, isFetching: isFetchingModels } = useAvailableModels(
+    selectedProviderName,
+    fetchModelsEnabled && hasApiKey
+  );
 
   const keysForm = useForm<KeysFormValues>({
     resolver: zodResolver(keysSchema),
@@ -111,14 +139,15 @@ export default function Settings() {
         toast({ title: "API keys saved", description: "Provider credentials updated successfully." });
       },
       onError: (err) => {
-        toast({ title: "Failed to save", description: err.error || "An error occurred", variant: "destructive" });
+        toast({ title: "Failed to save", description: (err as { error?: string }).error || "An error occurred", variant: "destructive" });
       },
     });
   }
 
   function handleSelectProvider(p: ProviderRow) {
     setSelectedProviderId(p.id);
-    // Pre-fill with current version if same provider
+    setFetchModelsEnabled(false);
+    setShowModelList(false);
     if (judgeModel?.judgeModelId === p.id && judgeModel.modelVersion) {
       setModelVersion(judgeModel.modelVersion);
     } else {
@@ -126,12 +155,20 @@ export default function Settings() {
     }
   }
 
+  function handleFetchModels() {
+    setFetchModelsEnabled(true);
+    setShowModelList(true);
+    queryClient.invalidateQueries({ queryKey: ["settings", "available-models", selectedProviderName] });
+  }
+
   function handleSaveJudge() {
     if (!selectedProviderId || !modelVersion.trim()) return;
     setJudgeModel.mutate({ judgeModelId: selectedProviderId, modelVersion: modelVersion.trim() }, {
-      onSuccess: (data) => {
+      onSuccess: (data: JudgeModelConfig) => {
         setSelectedProviderId(null);
         setModelVersion("");
+        setFetchModelsEnabled(false);
+        setShowModelList(false);
         toast({ title: "Judge model saved", description: `Now using ${data.modelVersion} via ${data.displayName}.` });
       },
       onError: () => {
@@ -142,8 +179,7 @@ export default function Settings() {
 
   const activeProvider = providers?.find((p) => p.id === judgeModel?.judgeModelId);
   const activeMeta = activeProvider ? PROVIDER_META[activeProvider.provider] : null;
-  const selectedProvider = providers?.find((p) => p.id === selectedProviderId);
-  const selectedMeta = selectedProvider ? PROVIDER_META[selectedProvider.provider] : null;
+  const availableModels = modelsData?.models ?? [];
 
   return (
     <motion.div
@@ -152,9 +188,34 @@ export default function Settings() {
       transition={{ duration: 0.25 }}
       className="max-w-2xl space-y-6 pb-12"
     >
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Configure your judge model and API credentials</p>
+      {/* Header with user info */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+          <p className="text-sm text-muted-foreground mt-1">Configure your judge model and API credentials</p>
+        </div>
+        {user && (
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <p className="text-sm font-medium text-foreground">
+                {user.firstName ? `${user.firstName}${user.lastName ? " " + user.lastName : ""}` : user.email ?? "User"}
+              </p>
+              {user.email && user.firstName && (
+                <p className="text-xs text-muted-foreground">{user.email}</p>
+              )}
+            </div>
+            {user.profileImageUrl ? (
+              <img src={user.profileImageUrl} alt="avatar" className="w-8 h-8 rounded-full border border-border" />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
+                {(user.firstName?.[0] ?? user.email?.[0] ?? "U").toUpperCase()}
+              </div>
+            )}
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={logout} title="Log out">
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Judge Model Card */}
@@ -164,8 +225,6 @@ export default function Settings() {
           <p className="text-xs text-muted-foreground">The LLM responsible for evaluating all model responses</p>
         </CardHeader>
         <CardContent className="space-y-4">
-
-          {/* Active judge */}
           {isLoadingJudge ? (
             <Skeleton className="h-14 w-full" />
           ) : judgeModel?.judgeModelId && judgeModel.modelVersion ? (
@@ -184,7 +243,6 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Provider selection */}
           {isLoadingProviders ? (
             <div className="grid grid-cols-2 gap-2">
               {[0,1,2,3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
@@ -195,7 +253,6 @@ export default function Settings() {
                 {judgeModel?.judgeModelId ? "Change judge model" : "Select a provider"}
               </p>
 
-              {/* 2×2 provider grid */}
               <div className="grid grid-cols-2 gap-2">
                 {providers?.map((p) => {
                   const meta = PROVIDER_META[p.provider];
@@ -228,7 +285,6 @@ export default function Settings() {
                 })}
               </div>
 
-              {/* Model version input — shown only when a provider is selected */}
               {selectedProvider && selectedMeta && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
@@ -241,6 +297,52 @@ export default function Settings() {
                     </label>
                     <p className="text-xs text-muted-foreground">{selectedMeta.hint}</p>
                   </div>
+
+                  {/* Dynamic model picker */}
+                  {hasApiKey && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={`h-8 text-xs gap-1.5 ${selectedMeta.text} border-current`}
+                        onClick={handleFetchModels}
+                        disabled={isFetchingModels}
+                      >
+                        {isFetchingModels ? (
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3 w-3" />
+                        )}
+                        {isFetchingModels ? "Fetching…" : "Fetch available models"}
+                      </Button>
+                      {modelsData?.error && (
+                        <span className="text-xs text-destructive">{modelsData.error}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {showModelList && availableModels.length > 0 && (
+                    <div className="relative">
+                      <label className="text-xs text-muted-foreground mb-1 block">
+                        {availableModels.length} model{availableModels.length !== 1 ? "s" : ""} available — select or type below
+                      </label>
+                      <div className="relative">
+                        <select
+                          className={`w-full appearance-none rounded-md border bg-background text-sm h-9 px-3 pr-8 cursor-pointer ${selectedMeta.border} focus:outline-none focus:ring-2 focus:ring-offset-1 ${selectedMeta.ring}`}
+                          value={modelVersion}
+                          onChange={(e) => setModelVersion(e.target.value)}
+                        >
+                          <option value="">— pick a model —</option>
+                          {availableModels.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex gap-2">
                     <Input
                       value={modelVersion}
@@ -260,7 +362,7 @@ export default function Settings() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => { setSelectedProviderId(null); setModelVersion(""); }}
+                      onClick={() => { setSelectedProviderId(null); setModelVersion(""); setFetchModelsEnabled(false); setShowModelList(false); }}
                       className="h-9 px-3 shrink-0 text-muted-foreground"
                     >
                       Cancel
@@ -277,7 +379,7 @@ export default function Settings() {
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-sm font-semibold">API Keys</CardTitle>
-          <p className="text-xs text-muted-foreground">Required for the judge model to call inference APIs</p>
+          <p className="text-xs text-muted-foreground">Your private credentials — each account has its own isolated keys</p>
         </CardHeader>
         <CardContent>
           {isLoadingKeys ? (
@@ -288,10 +390,10 @@ export default function Settings() {
             <Form {...keysForm}>
               <form onSubmit={keysForm.handleSubmit(onSaveKeys)} className="space-y-4">
                 {[
-                  { name: "openaiKey" as const,  label: "OpenAI",            placeholder: "sk-…",           statusKey: "openai" as const },
-                  { name: "geminiKey" as const,   label: "Google Gemini",     placeholder: "AIza…",          statusKey: "gemini" as const },
-                  { name: "deepseekKey" as const, label: "DeepSeek",          placeholder: "sk-…",           statusKey: "deepseek" as const },
-                  { name: "claudeKey" as const,   label: "Anthropic (Claude)",placeholder: "sk-ant-…",       statusKey: "claude" as const },
+                  { name: "openaiKey" as const,  label: "OpenAI",             placeholder: "sk-…",           statusKey: "openai" as const },
+                  { name: "geminiKey" as const,   label: "Google Gemini",      placeholder: "AIza…",          statusKey: "gemini" as const },
+                  { name: "deepseekKey" as const, label: "DeepSeek",           placeholder: "sk-…",           statusKey: "deepseek" as const },
+                  { name: "claudeKey" as const,   label: "Anthropic (Claude)", placeholder: "sk-ant-…",       statusKey: "claude" as const },
                 ].map(({ name, label, placeholder, statusKey }) => (
                   <FormField
                     key={name}
