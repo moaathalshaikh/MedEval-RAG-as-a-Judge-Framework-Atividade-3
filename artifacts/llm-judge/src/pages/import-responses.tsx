@@ -54,7 +54,8 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
   const header = parseHeader(lines[0]);
 
   const idIdx   = header.findIndex((h) => h === "id");
-  const ansIdx  = header.findIndex((h) => h === "answer" || h.includes("response") || h.includes("text"));
+  const qIdx    = header.findIndex((h) => h === "question");
+  const ansIdx  = header.findIndex((h) => h === "answer" || h.includes("response"));
   const timeIdx = header.findIndex((h) => h.includes("time") || h.includes("ms") || h.includes("inference"));
 
   const entries: ImportEntry[] = [];
@@ -62,11 +63,13 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
     const line = lines[i].trim();
     if (!line) continue;
     const cols = splitCSVLine(line);
-    const externalId = idIdx >= 0 ? cols[idIdx]?.trim().replace(/^"|"$/g, "") : undefined;
+    const externalId   = idIdx  >= 0 ? cols[idIdx]?.trim().replace(/^"|"$/g, "") : undefined;
+    const questionText = qIdx   >= 0 ? cols[qIdx]?.trim().replace(/^"|"$/g, "")  : undefined;
     const responseText = cols[ansIdx >= 0 ? ansIdx : 2]?.trim().replace(/^"|"$/g, "") ?? "";
     const inferenceTimeMs = timeIdx >= 0 ? (parseFloat(cols[timeIdx]) || null) : null;
     if (!responseText) continue;
-    entries.push({ externalId, modelId, responseText, inferenceTimeMs });
+    // Send both externalId and questionText — backend tries externalId first, falls back to questionText
+    entries.push({ externalId, questionText, modelId, responseText, inferenceTimeMs });
   }
   return { entries };
 }

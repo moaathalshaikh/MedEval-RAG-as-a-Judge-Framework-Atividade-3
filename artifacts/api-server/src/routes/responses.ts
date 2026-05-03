@@ -164,29 +164,33 @@ router.post("/responses/import", async (req, res): Promise<void> => {
 
       let resolvedQuestionId: number | undefined = r.questionId;
 
-      // Resolve by externalId (open-ended: "id" column in CSV → metadata.external_id)
+      // Resolve by externalId → metadata.external_id (try first, fall through on miss)
       if (!resolvedQuestionId && r.externalId) {
         const dsId = r.datasetId ?? datasetId;
-        if (!dsId) { skipped++; errors.push(`externalId ${r.externalId}: datasetId required`); continue; }
-        const [found] = await db.select().from(questionsTable).where(
-          and(
-            eq(questionsTable.datasetId, dsId),
-            sql`${questionsTable.metadata}->>'external_id' = ${r.externalId}`
-          )
-        );
-        resolvedQuestionId = found?.id;
-        if (!resolvedQuestionId) { skipped++; errors.push(`No question with external_id=${r.externalId} in dataset ${dsId}`); continue; }
+        if (dsId) {
+          const [found] = await db.select().from(questionsTable).where(
+            and(
+              eq(questionsTable.datasetId, dsId),
+              sql`${questionsTable.metadata}->>'external_id' = ${r.externalId}`
+            )
+          );
+          resolvedQuestionId = found?.id;
+        }
+        // If not found by external_id, fall through to questionText matching below
       }
 
-      // Resolve by questionText prefix (MCQ: no ID in file, match by text)
+      // Resolve by questionText prefix — works for both MCQ and open-ended fallback
       if (!resolvedQuestionId && r.questionText) {
         const dsId = r.datasetId ?? datasetId;
         if (!dsId) { skipped++; errors.push(`questionText match: datasetId required`); continue; }
         const prefix = r.questionText.trim().slice(0, 120);
         const questions = await getQuestionsForDataset(dsId);
-        const found = questions.find(q => q.questionText.trim().startsWith(prefix) || prefix.startsWith(q.questionText.trim().slice(0, 120)));
+        const found = questions.find(q =>
+          q.questionText.trim().startsWith(prefix.slice(0, 80)) ||
+          prefix.startsWith(q.questionText.trim().slice(0, 80))
+        );
         resolvedQuestionId = found?.id;
-        if (!resolvedQuestionId) { skipped++; errors.push(`No match for question text: "${prefix.slice(0, 60)}..."`); continue; }
+        if (!resolvedQuestionId) { skipped++; errors.push(`No match: "${prefix.slice(0, 60)}..."`); continue; }
       }
 
       if (!resolvedQuestionId) {
