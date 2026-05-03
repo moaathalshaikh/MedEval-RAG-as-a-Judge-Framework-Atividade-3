@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable, judgeModelsTable, settingsTable } from "@workspace/db";
+import { eq, and, inArray } from "drizzle-orm";
+import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable, judgeModelsTable, settingsTable, referenceAnswersTable } from "@workspace/db";
 import {
   RunJudgeBody,
   GetEvaluationParams,
@@ -101,6 +101,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
   }
 
   const { judgeModelId, responseIds, datasetId, modelId } = parsed.data;
+  const useReferenceAnswers = !!(req.body as Record<string, unknown>).useReferenceAnswers;
 
   // Resolve judge model from user settings
   let resolvedJudgeModelId = judgeModelId;
@@ -186,6 +187,24 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
     return;
   }
 
+  // Pre-fetch all reference answers if needed (bulk fetch for performance)
+  let refAnswerMap: Map<number, string> = new Map();
+  if (useReferenceAnswers) {
+    const questionIds = [...new Set(responseRows.map((r) => r.question?.id).filter(Boolean) as number[])];
+    if (questionIds.length > 0) {
+      const refs = await db
+        .select()
+        .from(referenceAnswersTable)
+        .where(and(
+          eq(referenceAnswersTable.judgeModelId, resolvedJudgeModelId!),
+          inArray(referenceAnswersTable.questionId, questionIds)
+        ));
+      for (const ref of refs) {
+        refAnswerMap.set(ref.questionId, ref.answerText);
+      }
+    }
+  }
+
   let evaluated = 0;
   let skipped = 0;
   const errors: string[] = [];
@@ -197,13 +216,22 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
       continue;
     }
 
+    const referenceAnswer = useReferenceAnswers ? refAnswerMap.get(question.id) : undefined;
+
+    if (useReferenceAnswers && !referenceAnswer) {
+      skipped++;
+      errors.push(`Response ${response.id}: no reference answer for question ${question.id} — run Step 1 first`);
+      continue;
+    }
+
     try {
       const prompt = buildJudgePrompt(
         question.questionText,
         question.goldAnswer,
         response.responseText,
         question.questionType,
-        (question.metadata as Record<string, unknown>) ?? {}
+        (question.metadata as Record<string, unknown>) ?? {},
+        referenceAnswer
       );
 
       const { text, confirmedModel } = await callLLM(

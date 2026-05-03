@@ -96,23 +96,57 @@ Score 4 — Good answer close to the ideal. The response is largely correct and 
 Score 5 — Excellent answer that matches or exceeds the gold standard. Complete, accurate, and well-reasoned.
 `.trim();
 
+export function buildReferenceAnswerPrompt(
+  question: string,
+  questionType: string,
+  metadata: Record<string, unknown>
+): string {
+  if (questionType === "MCQ") {
+    const choicesObj = metadata.choices as Record<string, string> | string[] | undefined;
+    let choicesStr = "";
+    if (choicesObj) {
+      if (Array.isArray(choicesObj)) {
+        choicesStr = `\nOptions:\n${choicesObj.map((c, i) => `${String.fromCharCode(65 + i)}) ${c}`).join("\n")}`;
+      } else {
+        choicesStr = `\nOptions:\n${Object.entries(choicesObj).map(([k, v]) => `${k}) ${v}`).join("\n")}`;
+      }
+    }
+    const choices = choicesStr;
+    return `You are a medical expert. Answer the following multiple-choice question by stating the correct option letter only (A, B, C, or D).
+
+Question: ${question}${choices}
+
+Reply with only the correct option letter (e.g. "A" or "B"). No explanation needed.`;
+  }
+
+  return `You are a medical expert. Provide a comprehensive, accurate, and detailed answer to the following medical question.
+
+Question: ${question}
+
+Give a thorough answer covering all important aspects. Be precise and clinically accurate.`;
+}
+
 export function buildJudgePrompt(
   question: string,
   goldAnswer: string,
   modelResponse: string,
   questionType: string,
-  metadata: Record<string, unknown>
+  metadata: Record<string, unknown>,
+  referenceAnswer?: string
 ): string {
+  const referenceLabel = referenceAnswer ? "LLM Reference Answer" : "Gold Answer (ideal response)";
+  const referenceText = referenceAnswer ?? goldAnswer;
+
   if (questionType === "MCQ") {
     return `You are an expert evaluator for multiple choice questions.
 
 Question: ${question}
-Correct Answer: ${goldAnswer}
-Model Response: ${modelResponse}
+${referenceLabel}: ${referenceText}
+Small Model Response: ${modelResponse}
 
 For MCQ questions:
-- If the model's response matches the correct answer (same letter/option), score = 5
-- If the model's response does not match, score = 1
+- If the small model's response matches the reference answer (same letter/option), score = 5
+- If the small model's response does not match, score = 1
 
 Provide your evaluation in exactly this JSON format (no other text):
 {"score": <1 or 5>, "reasoning": "<brief explanation>"}`;
@@ -121,13 +155,13 @@ Provide your evaluation in exactly this JSON format (no other text):
   const mustHave = metadata.must_have ? `\nRequired elements (must_have): ${JSON.stringify(metadata.must_have)}` : "";
   const niceToHave = metadata.nice_to_have ? `\nBonus elements (nice_to_have): ${JSON.stringify(metadata.nice_to_have)}` : "";
 
-  return `You are an expert evaluator. Evaluate the model's response to the following question.
+  return `You are an expert evaluator. Evaluate the small model's response against the reference answer.
 
 ${JUDGE_RUBRIC}
 
 Question: ${question}
-Gold Answer (ideal response): ${goldAnswer}${mustHave}${niceToHave}
-Model Response: ${modelResponse}
+${referenceLabel}: ${referenceText}${mustHave}${niceToHave}
+Small Model Response: ${modelResponse}
 
 Evaluate carefully using the rubric above. Provide a detailed Chain-of-Thought reasoning explaining your scoring, then give the final score.
 

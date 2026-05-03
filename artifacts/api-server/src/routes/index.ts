@@ -8,6 +8,7 @@ import responsesRouter from "./responses";
 import evaluationsRouter from "./evaluations";
 import analyticsRouter from "./analytics";
 import settingsRouter from "./settings";
+import referenceAnswersRouter from "./reference-answers";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(responsesRouter);
 router.use(evaluationsRouter);
 router.use(analyticsRouter);
 router.use(settingsRouter);
+router.use(referenceAnswersRouter);
 
 export default router;
