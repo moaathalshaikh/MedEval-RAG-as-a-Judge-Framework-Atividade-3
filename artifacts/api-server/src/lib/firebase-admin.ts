@@ -22,6 +22,11 @@ function getAdminApp(): App {
   return adminApp;
 }
 
+export async function generatePasswordResetLink(email: string, continueUrl: string): Promise<string> {
+  const app = getAdminApp();
+  return getAuth(app).generatePasswordResetLink(email, { url: continueUrl });
+}
+
 export async function verifyFirebaseToken(idToken: string): Promise<{
   uid: string;
   email: string | null;

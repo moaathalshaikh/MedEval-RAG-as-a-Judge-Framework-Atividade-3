@@ -19,7 +19,8 @@ import {
   ISSUER_URL,
   type SessionData,
 } from "../lib/auth";
-import { verifyFirebaseToken } from "../lib/firebase-admin";
+import { verifyFirebaseToken, generatePasswordResetLink } from "../lib/firebase-admin";
+import { sendPasswordResetEmail } from "../lib/mailer";
 
 const OIDC_COOKIE_TTL = 10 * 60 * 1000;
 
@@ -350,6 +351,43 @@ router.post("/mobile-auth/logout", async (req: Request, res: Response) => {
     await deleteSession(sid);
   }
   res.json(LogoutMobileSessionResponse.parse({ success: true }));
+});
+
+/** Send a branded password reset email via our own SMTP server */
+router.post("/auth/send-password-reset", async (req: Request, res: Response) => {
+  const { email, origin, basePath } = req.body as {
+    email?: string;
+    origin?: string;
+    basePath?: string;
+  };
+
+  if (!email || typeof email !== "string") {
+    res.status(400).json({ error: "email is required" });
+    return;
+  }
+
+  try {
+    const base = (basePath ?? "").replace(/\/$/, "");
+    const appOrigin = origin ?? `https://${req.headers.host}`;
+    const continueUrl = `${appOrigin}${base}/auth/action?flow=password-reset`;
+
+    // Firebase Admin generates the oobCode — we extract it and build our URL
+    const firebaseLink = await generatePasswordResetLink(email, continueUrl);
+    const params = new URL(firebaseLink).searchParams;
+    const oobCode = params.get("oobCode");
+    const apiKey = params.get("apiKey");
+
+    if (!oobCode || !apiKey) throw new Error("Could not extract oobCode from Firebase link");
+
+    const resetUrl = `${appOrigin}${base}/auth/action?mode=resetPassword&oobCode=${encodeURIComponent(oobCode)}&apiKey=${encodeURIComponent(apiKey)}`;
+
+    await sendPasswordResetEmail({ to: email, resetUrl });
+    res.json({ success: true });
+  } catch (err) {
+    req.log.warn({ err }, "Password reset email failed");
+    // Always return success to avoid email enumeration
+    res.json({ success: true });
+  }
 });
 
 export default router;
