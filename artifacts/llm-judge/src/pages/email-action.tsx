@@ -5,7 +5,7 @@ import { Stethoscope, CheckCircle2, XCircle, Loader2, Eye, EyeOff } from "lucide
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type Status = "loading" | "success" | "error" | "reset-form" | "reset-success";
+type Status = "loading" | "success" | "password-reset-done" | "error" | "reset-form" | "reset-success";
 
 function getParam(name: string): string | null {
   return new URLSearchParams(window.location.search).get(name);
@@ -24,6 +24,7 @@ export default function EmailAction() {
 
   const mode = getParam("mode");
   const oobCode = getParam("oobCode");
+  const flow = getParam("flow");
 
   useEffect(() => {
     if (mode === "verifyEmail" && oobCode) {
@@ -42,11 +43,15 @@ export default function EmailAction() {
           }
         });
     } else if (mode === "resetPassword" && oobCode) {
-      // Show password reset form — do not apply code yet
       setStatus("reset-form");
     } else if (!mode && !oobCode) {
-      // Firebase redirect after processing on its own page
-      setStatus("success");
+      // Firebase redirect after processing on its own page.
+      // Use the flow param to show the right success screen.
+      if (flow === "password-reset") {
+        setStatus("password-reset-done");
+      } else {
+        setStatus("success");
+      }
     } else {
       setErrorMessage("Invalid or unsupported action link.");
       setStatus("error");
@@ -120,6 +125,26 @@ export default function EmailAction() {
               <h2 className="text-xl font-semibold text-foreground">Email verified!</h2>
               <p className="text-sm text-muted-foreground mt-2">
                 Your email address has been confirmed. You can now sign in to MedEval Judge.
+              </p>
+            </div>
+            <Button className="w-full h-11" onClick={() => window.location.href = appBase + "/"}>
+              Sign in to MedEval Judge
+            </Button>
+          </div>
+        )}
+
+        {/* Password reset done — Firebase handled it, redirect to sign in */}
+        {status === "password-reset-done" && (
+          <div className="space-y-5">
+            <div className="flex justify-center">
+              <div className="w-20 h-20 rounded-full bg-green-50 border border-green-100 flex items-center justify-center">
+                <CheckCircle2 className="w-10 h-10 text-green-600" />
+              </div>
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-foreground">Password updated!</h2>
+              <p className="text-sm text-muted-foreground mt-2">
+                Your password has been changed successfully. You can now sign in with your new password.
               </p>
             </div>
             <Button className="w-full h-11" onClick={() => window.location.href = appBase + "/"}>

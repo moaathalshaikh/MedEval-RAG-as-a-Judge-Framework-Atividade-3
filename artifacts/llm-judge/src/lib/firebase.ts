@@ -85,10 +85,11 @@ export async function signInWithEmail(email: string, password: string): Promise<
 }
 
 /** Build ActionCodeSettings pointing to our branded /auth/action handler */
-function getActionCodeSettings() {
+function getActionCodeSettings(flow?: string) {
   const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  const flowParam = flow ? `?flow=${flow}` : "";
   return {
-    url: `${window.location.origin}${base}/auth/action`,
+    url: `${window.location.origin}${base}/auth/action${flowParam}`,
     handleCodeInApp: true,
   };
 }
@@ -113,11 +114,7 @@ export async function resendVerificationEmail(email: string, password: string): 
 
 /** Send a password reset email */
 export async function sendPasswordReset(email: string): Promise<void> {
-  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
-  await sendPasswordResetEmail(auth, email, {
-    url: `${window.location.origin}${base}/auth/action`,
-    handleCodeInApp: true,
-  });
+  await sendPasswordResetEmail(auth, email, getActionCodeSettings("password-reset"));
 }
 
 /** Complete the password reset with a new password */
