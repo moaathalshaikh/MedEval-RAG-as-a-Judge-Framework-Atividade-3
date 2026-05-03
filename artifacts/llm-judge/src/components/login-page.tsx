@@ -130,25 +130,6 @@ export function LoginPage() {
               className="space-y-3"
             >
               <Button
-                className="w-full h-11 text-sm font-medium gap-2.5"
-                onClick={login}
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18a8 8 0 110-16 8 8 0 010 16zm-1-5h2v2h-2v-2zm0-8h2v6h-2V7z"/>
-                </svg>
-                Log in with Replit
-              </Button>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border" />
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-background px-3 text-xs text-muted-foreground">or continue with</span>
-                </div>
-              </div>
-
-              <Button
                 variant="outline"
                 className="w-full h-11 text-sm font-medium gap-2.5"
                 onClick={handleGoogleSignIn}
