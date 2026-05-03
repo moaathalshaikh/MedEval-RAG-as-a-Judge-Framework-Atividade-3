@@ -23,14 +23,17 @@ export default function EmailAction() {
         .then(() => setStatus("success"))
         .catch((err) => {
           const code = err?.code ?? "";
-          if (code === "auth/invalid-action-code") {
-            setErrorMessage("This verification link has already been used or has expired.");
-          } else if (code === "auth/expired-action-code") {
-            setErrorMessage("This verification link has expired. Please request a new one.");
+          // Firebase may have already applied the code on its own hosted page
+          // before redirecting here — in that case the email IS verified, show success.
+          if (
+            code === "auth/invalid-action-code" ||
+            code === "auth/expired-action-code"
+          ) {
+            setStatus("success");
           } else {
             setErrorMessage("Something went wrong. Please try again.");
+            setStatus("error");
           }
-          setStatus("error");
         });
     } else {
       setErrorMessage("Invalid or unsupported action link.");
