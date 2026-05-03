@@ -66,9 +66,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     } catch { /* proceed regardless */ }
 
     if (user?.provider === "firebase") {
-      await firebaseSignOut();
       await fetch("/api/auth/firebase-logout", { method: "POST", credentials: "include" });
-      window.location.reload();
+      await firebaseSignOut();
+      window.location.href = "/";
     } else {
       replitLogout();
     }
