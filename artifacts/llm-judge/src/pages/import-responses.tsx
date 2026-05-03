@@ -202,8 +202,6 @@ export default function ImportResponses() {
       setResult(data);
       queryClient.invalidateQueries();
       toast({ title: "Import complete", description: `${data.imported} responses imported.` });
-      setParsedResult(null);
-      setFileName("");
     } catch (err) {
       toast({ title: "Import failed", description: String(err), variant: "destructive" });
     } finally {
