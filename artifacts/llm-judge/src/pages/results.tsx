@@ -6,8 +6,41 @@ import { useState } from "react";
 import { ScoreBadge } from "@/components/score-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ChevronRight, Filter } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ChevronRight, Filter, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+function escapeCSV(val: unknown): string {
+  const s = val == null ? "" : String(val);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function exportResultsCSV(rows: any[]) {
+  const headers = ["model", "dataset", "question", "gold_answer", "response", "score", "judge_model", "reasoning", "evaluated_at"];
+  const lines = [
+    headers.join(","),
+    ...rows.map((r) => [
+      escapeCSV(r.modelName),
+      escapeCSV(r.datasetName),
+      escapeCSV(r.questionText),
+      escapeCSV(r.goldAnswer),
+      escapeCSV(r.responseText),
+      escapeCSV(r.score ?? ""),
+      escapeCSV(r.judgeModelName ?? ""),
+      escapeCSV(r.reasoning ?? ""),
+      escapeCSV(r.evaluatedAt ? new Date(r.evaluatedAt).toISOString() : ""),
+    ].join(",")),
+  ];
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `results_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 export default function Results() {
   const [datasetId, setDatasetId] = useState<string>("");
@@ -39,10 +72,10 @@ export default function Results() {
           <p className="text-sm text-muted-foreground mt-1">Browse and inspect evaluation outcomes</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
           <Select value={datasetId} onValueChange={setDatasetId}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="All datasets" />
             </SelectTrigger>
             <SelectContent>
@@ -54,7 +87,7 @@ export default function Results() {
           </Select>
 
           <Select value={modelId} onValueChange={setModelId}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="All models" />
             </SelectTrigger>
             <SelectContent>
@@ -64,6 +97,20 @@ export default function Results() {
               ))}
             </SelectContent>
           </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 shrink-0"
+            disabled={!results || results.length === 0}
+            onClick={() => results && exportResultsCSV(results)}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+            {results && results.length > 0 && (
+              <span className="text-xs text-muted-foreground ml-0.5">({results.length})</span>
+            )}
+          </Button>
         </div>
       </div>
 
