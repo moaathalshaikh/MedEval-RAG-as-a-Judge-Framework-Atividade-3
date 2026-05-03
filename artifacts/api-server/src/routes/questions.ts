@@ -7,7 +7,14 @@ import {
   DeleteQuestionParams,
   ListQuestionsQueryParams,
 } from "@workspace/api-zod";
-import { requireAuth } from "../middleware/auth-gate";
+
+function requireAuth(req: Request, res: Response): req is Request & { user: NonNullable<typeof req.user> } {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
 
 const router: IRouter = Router();
 
