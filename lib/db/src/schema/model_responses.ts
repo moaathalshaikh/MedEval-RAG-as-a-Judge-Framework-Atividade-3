@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { questionsTable } from "./questions";
@@ -11,7 +11,7 @@ export const modelResponsesTable = pgTable("model_responses", {
   responseText: text("response_text").notNull(),
   inferenceTimeMs: integer("inference_time_ms"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [unique("uq_response_question_model").on(t.questionId, t.modelId)]);
 
 export const insertModelResponseSchema = createInsertSchema(modelResponsesTable).omit({ id: true, createdAt: true });
 export type InsertModelResponse = z.infer<typeof insertModelResponseSchema>;

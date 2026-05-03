@@ -199,13 +199,22 @@ router.post("/responses/import", async (req, res): Promise<void> => {
         continue;
       }
 
-      await db.insert(modelResponsesTable).values({
-        questionId: resolvedQuestionId,
-        modelId: r.modelId,
-        responseText: r.responseText,
-        inferenceTimeMs: r.inferenceTimeMs ?? null,
-      });
-      imported++;
+      const inserted = await db.insert(modelResponsesTable)
+        .values({
+          questionId: resolvedQuestionId,
+          modelId: r.modelId,
+          responseText: r.responseText,
+          inferenceTimeMs: r.inferenceTimeMs ?? null,
+        })
+        .onConflictDoNothing()
+        .returning();
+
+      if (inserted.length > 0) {
+        imported++;
+      } else {
+        skipped++;
+        errors.push(`Duplicate: response for question ${resolvedQuestionId} / model ${r.modelId} already exists`);
+      }
     } catch (e) {
       skipped++;
       errors.push(`Entry error: ${String(e)}`);
