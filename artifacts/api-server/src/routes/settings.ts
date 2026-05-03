@@ -12,6 +12,23 @@ const KEY_NAMES = {
   claude: "claude_api_key",
 } as const;
 
+const JUDGE_MODEL_ID_KEY = "judge_model_id";
+const JUDGE_MODEL_VERSION_KEY = "judge_model_version";
+
+async function getSetting(key: string): Promise<string | null> {
+  const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
+  return row?.value ?? null;
+}
+
+async function upsertSetting(key: string, value: string): Promise<void> {
+  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
+  if (existing) {
+    await db.update(settingsTable).set({ value }).where(eq(settingsTable.key, key));
+  } else {
+    await db.insert(settingsTable).values({ key, value });
+  }
+}
+
 router.get("/settings/api-keys", async (_req, res): Promise<void> => {
   const [openai] = await db.select().from(settingsTable).where(eq(settingsTable.key, KEY_NAMES.openai));
   const [gemini] = await db.select().from(settingsTable).where(eq(settingsTable.key, KEY_NAMES.gemini));
@@ -37,12 +54,7 @@ router.post("/settings/api-keys", async (req, res): Promise<void> => {
 
   const upsertKey = async (key: string, value: string | null | undefined) => {
     if (value == null || value === "") return;
-    const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
-    if (existing) {
-      await db.update(settingsTable).set({ value }).where(eq(settingsTable.key, key));
-    } else {
-      await db.insert(settingsTable).values({ key, value });
-    }
+    await upsertSetting(key, value);
   };
 
   await upsertKey(KEY_NAMES.openai, openaiKey);
@@ -63,55 +75,63 @@ router.post("/settings/api-keys", async (req, res): Promise<void> => {
   });
 });
 
-const JUDGE_MODEL_KEY = "judge_model_id";
-
+// List the 4 provider rows
 router.get("/settings/judge-models", async (_req, res): Promise<void> => {
   const models = await db.select().from(judgeModelsTable);
   res.json(models);
 });
 
+// Get current judge config: provider row + model version from settings
 router.get("/settings/judge-model", async (_req, res): Promise<void> => {
-  const [setting] = await db.select().from(settingsTable).where(eq(settingsTable.key, JUDGE_MODEL_KEY));
-  if (!setting?.value) {
-    res.json({ judgeModelId: null, displayName: null, provider: null, modelVersion: null });
+  const providerId = await getSetting(JUDGE_MODEL_ID_KEY);
+  const modelVersion = await getSetting(JUDGE_MODEL_VERSION_KEY);
+
+  if (!providerId) {
+    res.json({ judgeModelId: null, provider: null, displayName: null, modelVersion: null });
     return;
   }
-  const id = parseInt(setting.value);
-  const [model] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, id));
+
+  const [model] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, parseInt(providerId)));
   if (!model) {
-    res.json({ judgeModelId: null, displayName: null, provider: null, modelVersion: null });
+    res.json({ judgeModelId: null, provider: null, displayName: null, modelVersion: null });
     return;
   }
+
   res.json({
     judgeModelId: model.id,
-    displayName: model.displayName,
     provider: model.provider,
-    modelVersion: model.modelVersion,
+    displayName: model.displayName,
+    modelVersion: modelVersion ?? "",
   });
 });
 
+// Save judge config: { judgeModelId, modelVersion }
 router.post("/settings/judge-model", async (req, res): Promise<void> => {
-  const { judgeModelId } = req.body;
+  const { judgeModelId, modelVersion } = req.body;
+
   if (!judgeModelId || typeof judgeModelId !== "number") {
     res.status(400).json({ error: "judgeModelId (number) is required" });
     return;
   }
-  const [model] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, judgeModelId));
-  if (!model) {
-    res.status(404).json({ error: "Judge model not found" });
+  if (!modelVersion || typeof modelVersion !== "string" || !modelVersion.trim()) {
+    res.status(400).json({ error: "modelVersion (string) is required" });
     return;
   }
-  const [existing] = await db.select().from(settingsTable).where(eq(settingsTable.key, JUDGE_MODEL_KEY));
-  if (existing) {
-    await db.update(settingsTable).set({ value: String(judgeModelId) }).where(eq(settingsTable.key, JUDGE_MODEL_KEY));
-  } else {
-    await db.insert(settingsTable).values({ key: JUDGE_MODEL_KEY, value: String(judgeModelId) });
+
+  const [model] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, judgeModelId));
+  if (!model) {
+    res.status(404).json({ error: "Provider not found" });
+    return;
   }
+
+  await upsertSetting(JUDGE_MODEL_ID_KEY, String(judgeModelId));
+  await upsertSetting(JUDGE_MODEL_VERSION_KEY, modelVersion.trim());
+
   res.json({
     judgeModelId: model.id,
-    displayName: model.displayName,
     provider: model.provider,
-    modelVersion: model.modelVersion,
+    displayName: model.displayName,
+    modelVersion: modelVersion.trim(),
   });
 });
 

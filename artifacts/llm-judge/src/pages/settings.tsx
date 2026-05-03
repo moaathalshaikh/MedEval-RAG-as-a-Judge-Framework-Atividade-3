@@ -13,7 +13,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { useState } from "react";
 
@@ -23,28 +23,35 @@ const keysSchema = z.object({
   deepseekKey: z.string().optional(),
   claudeKey: z.string().optional(),
 });
-
 type KeysFormValues = z.infer<typeof keysSchema>;
 
 interface JudgeModelConfig {
   judgeModelId: number | null;
-  displayName: string | null;
   provider: string | null;
+  displayName: string | null;
   modelVersion: string | null;
 }
 
-interface JudgeModelOption {
+interface ProviderRow {
   id: number;
   provider: string;
   displayName: string;
-  modelVersion: string;
 }
 
-const PROVIDER_META: Record<string, { label: string; color: string; bg: string; border: string; dot: string }> = {
-  OpenAI:   { label: "OpenAI",   color: "text-emerald-700", bg: "bg-emerald-50",  border: "border-emerald-200", dot: "bg-emerald-500" },
-  Gemini:   { label: "Google",   color: "text-blue-700",    bg: "bg-blue-50",     border: "border-blue-200",    dot: "bg-blue-500" },
-  Claude:   { label: "Anthropic",color: "text-orange-700",  bg: "bg-orange-50",   border: "border-orange-200",  dot: "bg-orange-500" },
-  DeepSeek: { label: "DeepSeek", color: "text-purple-700",  bg: "bg-purple-50",   border: "border-purple-200",  dot: "bg-purple-500" },
+const PROVIDER_META: Record<string, {
+  label: string;
+  dot: string;
+  ring: string;
+  bg: string;
+  text: string;
+  border: string;
+  placeholder: string;
+  hint: string;
+}> = {
+  OpenAI:   { label: "OpenAI",   dot: "bg-emerald-500", ring: "ring-emerald-300", bg: "bg-emerald-50",  text: "text-emerald-700", border: "border-emerald-300", placeholder: "e.g. gpt-4o-mini",              hint: "gpt-4o · gpt-4o-mini · gpt-4-turbo" },
+  Gemini:   { label: "Google",   dot: "bg-blue-500",    ring: "ring-blue-300",    bg: "bg-blue-50",     text: "text-blue-700",    border: "border-blue-300",    placeholder: "e.g. gemini-2.0-flash",         hint: "gemini-2.0-flash · gemini-1.5-pro" },
+  Claude:   { label: "Anthropic",dot: "bg-orange-500",  ring: "ring-orange-300",  bg: "bg-orange-50",   text: "text-orange-700",  border: "border-orange-300",  placeholder: "e.g. claude-3-5-haiku-20241022",hint: "claude-3-5-sonnet-20241022 · claude-3-5-haiku-20241022" },
+  DeepSeek: { label: "DeepSeek", dot: "bg-purple-500",  ring: "ring-purple-300",  bg: "bg-purple-50",   text: "text-purple-700",  border: "border-purple-300",  placeholder: "e.g. deepseek-chat",            hint: "deepseek-chat · deepseek-reasoner" },
 };
 
 function useJudgeModel() {
@@ -54,8 +61,8 @@ function useJudgeModel() {
   });
 }
 
-function useJudgeModelList() {
-  return useQuery<JudgeModelOption[]>({
+function useJudgeProviders() {
+  return useQuery<ProviderRow[]>({
     queryKey: ["settings", "judge-models-list"],
     queryFn: () => fetch("/api/settings/judge-models").then((r) => r.json()),
   });
@@ -64,40 +71,43 @@ function useJudgeModelList() {
 function useSetJudgeModel() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (judgeModelId: number) =>
+    mutationFn: (body: { judgeModelId: number; modelVersion: string }) =>
       fetch("/api/settings/judge-model", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ judgeModelId }),
-      }).then((r) => r.json()),
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        if (!r.ok) throw await r.json();
+        return r.json();
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings", "judge-model"] });
-      queryClient.invalidateQueries({ queryKey: ["settings", "judge-models-list"] });
     },
   });
 }
 
 export default function Settings() {
-  const { data: status, isLoading } = useGetApiKeyStatus();
+  const { data: status, isLoading: isLoadingKeys } = useGetApiKeyStatus();
   const { data: judgeModel, isLoading: isLoadingJudge } = useJudgeModel();
-  const { data: judgeModels, isLoading: isLoadingList } = useJudgeModelList();
+  const { data: providers, isLoading: isLoadingProviders } = useJudgeProviders();
   const saveKeys = useSaveApiKeys();
   const setJudgeModel = useSetJudgeModel();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const [expandedProvider, setExpandedProvider] = useState<string | null>(null);
+  const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
+  const [modelVersion, setModelVersion] = useState("");
 
-  const form = useForm<KeysFormValues>({
+  const keysForm = useForm<KeysFormValues>({
     resolver: zodResolver(keysSchema),
     defaultValues: { openaiKey: "", geminiKey: "", deepseekKey: "", claudeKey: "" },
   });
 
-  function onSubmit(data: KeysFormValues) {
+  function onSaveKeys(data: KeysFormValues) {
     saveKeys.mutate({ data }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetApiKeyStatusQueryKey() });
-        form.reset();
+        keysForm.reset();
         toast({ title: "API keys saved", description: "Provider credentials updated successfully." });
       },
       onError: (err) => {
@@ -106,163 +116,186 @@ export default function Settings() {
     });
   }
 
-  function handleSetJudge(model: JudgeModelOption) {
-    setJudgeModel.mutate(model.id, {
-      onSuccess: () => {
-        toast({ title: "Judge model updated", description: `Now using ${model.displayName} as the judge.` });
+  function handleSelectProvider(p: ProviderRow) {
+    setSelectedProviderId(p.id);
+    // Pre-fill with current version if same provider
+    if (judgeModel?.judgeModelId === p.id && judgeModel.modelVersion) {
+      setModelVersion(judgeModel.modelVersion);
+    } else {
+      setModelVersion("");
+    }
+  }
+
+  function handleSaveJudge() {
+    if (!selectedProviderId || !modelVersion.trim()) return;
+    setJudgeModel.mutate({ judgeModelId: selectedProviderId, modelVersion: modelVersion.trim() }, {
+      onSuccess: (data) => {
+        setSelectedProviderId(null);
+        setModelVersion("");
+        toast({ title: "Judge model saved", description: `Now using ${data.modelVersion} via ${data.displayName}.` });
       },
       onError: () => {
-        toast({ title: "Failed to update", description: "Could not save judge model selection.", variant: "destructive" });
+        toast({ title: "Failed to save", description: "Could not save judge model.", variant: "destructive" });
       },
     });
   }
 
-  // Group models by provider
-  const grouped = (judgeModels ?? []).reduce<Record<string, JudgeModelOption[]>>((acc, m) => {
-    if (!acc[m.provider]) acc[m.provider] = [];
-    acc[m.provider].push(m);
-    return acc;
-  }, {});
-
-  const providerOrder = ["OpenAI", "Gemini", "Claude", "DeepSeek"];
+  const activeProvider = providers?.find((p) => p.id === judgeModel?.judgeModelId);
+  const activeMeta = activeProvider ? PROVIDER_META[activeProvider.provider] : null;
+  const selectedProvider = providers?.find((p) => p.id === selectedProviderId);
+  const selectedMeta = selectedProvider ? PROVIDER_META[selectedProvider.provider] : null;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="max-w-2xl space-y-6 pb-12">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      className="max-w-2xl space-y-6 pb-12"
+    >
       <div>
         <h1 className="text-2xl font-bold text-foreground">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Configure your judge model and API credentials</p>
       </div>
 
-      {/* Judge Model */}
+      {/* Judge Model Card */}
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
           <p className="text-xs text-muted-foreground">The LLM responsible for evaluating all model responses</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Active judge display */}
+
+          {/* Active judge */}
           {isLoadingJudge ? (
             <Skeleton className="h-14 w-full" />
-          ) : judgeModel?.judgeModelId ? (
-            <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+          ) : judgeModel?.judgeModelId && judgeModel.modelVersion ? (
+            <div className={`flex items-center justify-between p-3 rounded-lg border ${activeMeta?.bg} ${activeMeta?.border}`}>
               <div>
-                <p className="font-semibold text-green-800">{judgeModel.displayName}</p>
-                <p className="text-xs text-green-600 mt-0.5">
-                  {PROVIDER_META[judgeModel.provider ?? ""]?.label ?? judgeModel.provider} · {judgeModel.modelVersion}
-                </p>
+                <p className={`font-semibold text-sm ${activeMeta?.text}`}>{judgeModel.modelVersion}</p>
+                <p className={`text-xs mt-0.5 opacity-70 ${activeMeta?.text}`}>{activeMeta?.label}</p>
               </div>
-              <span className="text-xs font-medium bg-green-100 text-green-700 px-2.5 py-0.5 rounded-full">Active</span>
+              <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${activeMeta?.bg} ${activeMeta?.text} border ${activeMeta?.border}`}>
+                Active
+              </span>
             </div>
           ) : (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-xs text-amber-700">No judge model selected. Choose one below to enable evaluation.</p>
+              <p className="text-xs text-amber-700">No judge model configured. Select a provider below.</p>
             </div>
           )}
 
-          {/* Model selector grouped by provider */}
-          {isLoadingList ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
+          {/* Provider selection */}
+          {isLoadingProviders ? (
+            <div className="grid grid-cols-2 gap-2">
+              {[0,1,2,3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <p className="text-sm font-medium text-foreground">
-                {judgeModel?.judgeModelId ? "Change judge model" : "Select judge model"}
+                {judgeModel?.judgeModelId ? "Change judge model" : "Select a provider"}
               </p>
-              <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
-                {providerOrder.map((provider) => {
-                  const models = grouped[provider] ?? [];
-                  if (models.length === 0) return null;
-                  const meta = PROVIDER_META[provider];
-                  const isOpen = expandedProvider === provider;
 
+              {/* 2×2 provider grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {providers?.map((p) => {
+                  const meta = PROVIDER_META[p.provider];
+                  const isActive = judgeModel?.judgeModelId === p.id && !selectedProviderId;
+                  const isSelected = selectedProviderId === p.id;
                   return (
-                    <div key={provider}>
-                      <button
-                        type="button"
-                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
-                        onClick={() => setExpandedProvider(isOpen ? null : provider)}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${meta.dot}`} />
-                          <span className="text-sm font-medium text-foreground">{meta.label}</span>
-                          <span className="text-xs text-muted-foreground">{models.length} model{models.length > 1 ? "s" : ""}</span>
-                        </div>
-                        {isOpen ? (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleSelectProvider(p)}
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-all ${
+                        isSelected
+                          ? `${meta.bg} ${meta.border} ring-2 ${meta.ring}`
+                          : isActive
+                          ? `${meta.bg} ${meta.border}`
+                          : "bg-background border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${meta.dot}`} />
+                      <div className="min-w-0">
+                        <p className={`text-sm font-medium truncate ${isSelected || isActive ? meta.text : "text-foreground"}`}>
+                          {meta.label}
+                        </p>
+                        {isActive && judgeModel?.modelVersion && (
+                          <p className={`text-xs truncate opacity-70 ${meta.text}`}>{judgeModel.modelVersion}</p>
                         )}
-                      </button>
-
-                      {isOpen && (
-                        <div className={`px-4 pb-3 pt-1 space-y-2 ${meta.bg}`}>
-                          {models.map((m) => {
-                            const isActive = judgeModel?.judgeModelId === m.id;
-                            return (
-                              <button
-                                key={m.id}
-                                type="button"
-                                disabled={setJudgeModel.isPending}
-                                onClick={() => handleSetJudge(m)}
-                                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg border text-left transition-colors ${
-                                  isActive
-                                    ? `${meta.border} ${meta.bg} ring-1 ring-inset ring-current/20`
-                                    : "border-border bg-background hover:bg-muted/60"
-                                }`}
-                              >
-                                <div>
-                                  <p className={`text-sm font-medium ${isActive ? meta.color : "text-foreground"}`}>
-                                    {m.displayName}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground mt-0.5">{m.modelVersion}</p>
-                                </div>
-                                {isActive && (
-                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${meta.bg} ${meta.color} ${meta.border} border`}>
-                                    Active
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    </button>
                   );
                 })}
               </div>
+
+              {/* Model version input — shown only when a provider is selected */}
+              {selectedProvider && selectedMeta && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className={`rounded-lg border ${selectedMeta.border} ${selectedMeta.bg} p-4 space-y-3`}
+                >
+                  <div className="space-y-1">
+                    <label className={`text-xs font-semibold uppercase tracking-wide ${selectedMeta.text}`}>
+                      {selectedMeta.label} model name
+                    </label>
+                    <p className="text-xs text-muted-foreground">{selectedMeta.hint}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={modelVersion}
+                      onChange={(e) => setModelVersion(e.target.value)}
+                      placeholder={selectedMeta.placeholder}
+                      className="bg-background text-sm h-9 flex-1"
+                      onKeyDown={(e) => { if (e.key === "Enter") handleSaveJudge(); }}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleSaveJudge}
+                      disabled={!modelVersion.trim() || setJudgeModel.isPending}
+                      className="h-9 px-4 shrink-0"
+                    >
+                      {setJudgeModel.isPending ? "Saving…" : "Save"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => { setSelectedProviderId(null); setModelVersion(""); }}
+                      className="h-9 px-3 shrink-0 text-muted-foreground"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* API Keys */}
+      {/* API Keys Card */}
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-sm font-semibold">API Keys</CardTitle>
           <p className="text-xs text-muted-foreground">Required for the judge model to call inference APIs</p>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoadingKeys ? (
             <div className="space-y-4">
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
+              {[0,1,2,3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
             </div>
           ) : (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <Form {...keysForm}>
+              <form onSubmit={keysForm.handleSubmit(onSaveKeys)} className="space-y-4">
                 {[
-                  { name: "openaiKey" as const,   label: "OpenAI",            placeholder: "sk-...",          statusKey: "openai" as const },
-                  { name: "geminiKey" as const,    label: "Google Gemini",     placeholder: "AIza...",         statusKey: "gemini" as const },
-                  { name: "deepseekKey" as const,  label: "DeepSeek",          placeholder: "sk-...",          statusKey: "deepseek" as const },
-                  { name: "claudeKey" as const,    label: "Anthropic (Claude)",placeholder: "sk-ant-...",      statusKey: "claude" as const },
+                  { name: "openaiKey" as const,  label: "OpenAI",            placeholder: "sk-…",           statusKey: "openai" as const },
+                  { name: "geminiKey" as const,   label: "Google Gemini",     placeholder: "AIza…",          statusKey: "gemini" as const },
+                  { name: "deepseekKey" as const, label: "DeepSeek",          placeholder: "sk-…",           statusKey: "deepseek" as const },
+                  { name: "claudeKey" as const,   label: "Anthropic (Claude)",placeholder: "sk-ant-…",       statusKey: "claude" as const },
                 ].map(({ name, label, placeholder, statusKey }) => (
                   <FormField
                     key={name}
-                    control={form.control}
+                    control={keysForm.control}
                     name={name}
                     render={({ field }) => (
                       <FormItem>
@@ -291,7 +324,7 @@ export default function Settings() {
                   />
                 ))}
                 <Button type="submit" disabled={saveKeys.isPending} className="w-full mt-2">
-                  {saveKeys.isPending ? "Saving..." : "Save API Keys"}
+                  {saveKeys.isPending ? "Saving…" : "Save API Keys"}
                 </Button>
               </form>
             </Form>
