@@ -16,7 +16,7 @@ router.use(authRouter);
 router.use(healthRouter);
 
 // Global auth guard — all routes below this point require a valid session
-const UNPROTECTED = ["/settings/judge-models", "/auth/firebase-session", "/auth/firebase-logout", "/auth/send-password-reset"];
+const UNPROTECTED = ["/settings/judge-models", "/auth/firebase-session", "/auth/firebase-logout"];
 
 router.use((req: Request, res: Response, next: NextFunction) => {
   if (UNPROTECTED.some((p) => req.path === p)) return next();

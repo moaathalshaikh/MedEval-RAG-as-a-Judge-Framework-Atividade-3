@@ -112,19 +112,9 @@ export async function resendVerificationEmail(email: string, password: string): 
   await signOut(auth);
 }
 
-/** Send a branded password reset email via our own server */
+/** Send a password reset email */
 export async function sendPasswordReset(email: string): Promise<void> {
-  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
-  const res = await fetch(`${base}/api/auth/send-password-reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      origin: window.location.origin,
-      basePath: base,
-    }),
-  });
-  if (!res.ok) throw new Error("Failed to send reset email");
+  await sendPasswordResetEmail(auth, email, getActionCodeSettings("password-reset"));
 }
 
 /** Complete the password reset with a new password */
