@@ -141,7 +141,12 @@ export default function Models() {
                   {models?.map((model) => (
                     <TableRow key={model.id} className="hover:bg-muted/40">
                       <TableCell className="pl-4 text-muted-foreground text-xs">{model.id}</TableCell>
-                      <TableCell className="font-medium">{model.modelName}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{model.modelName}</div>
+                        {model.createdByName && (
+                          <div className="text-xs text-muted-foreground mt-0.5">by {model.createdByName}</div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <span className="inline-block bg-primary/10 text-primary text-xs font-semibold px-2 py-0.5 rounded-full">
                           {model.modelSize}

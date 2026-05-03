@@ -1,6 +1,7 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, sql } from "drizzle-orm";
 import { db, datasetsTable, questionsTable } from "@workspace/db";
+import { usersTable } from "@workspace/db";
 import {
   CreateDatasetBody,
   GetDatasetParams,
@@ -9,6 +10,14 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+function requireAuth(req: Request, res: Response): req is Request & { user: NonNullable<typeof req.user> } {
+  if (!req.isAuthenticated()) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
 
 // ─── Proper CSV parser (handles quoted fields with commas) ──────────────────
 function parseCSVLine(line: string): string[] {
@@ -36,6 +45,12 @@ function extractCorrectLetter(val: string): string | null {
   return m ? m[1].toUpperCase() : null;
 }
 
+function displayName(u: { email: string | null; firstName: string | null; lastName: string | null } | null): string | null {
+  if (!u) return null;
+  const full = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+  return full || u.email || null;
+}
+
 // ─── Routes ─────────────────────────────────────────────────────────────────
 
 router.get("/datasets", async (_req, res): Promise<void> => {
@@ -45,12 +60,17 @@ router.get("/datasets", async (_req, res): Promise<void> => {
       datasetName: datasetsTable.datasetName,
       domain: datasetsTable.domain,
       datasetType: datasetsTable.datasetType,
+      createdBy: datasetsTable.createdBy,
       createdAt: datasetsTable.createdAt,
       questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)`,
+      creatorEmail: usersTable.email,
+      creatorFirstName: usersTable.firstName,
+      creatorLastName: usersTable.lastName,
     })
     .from(datasetsTable)
     .leftJoin(questionsTable, eq(questionsTable.datasetId, datasetsTable.id))
-    .groupBy(datasetsTable.id)
+    .leftJoin(usersTable, eq(usersTable.id, datasetsTable.createdBy))
+    .groupBy(datasetsTable.id, usersTable.email, usersTable.firstName, usersTable.lastName)
     .orderBy(datasetsTable.createdAt);
 
   res.json(rows.map((r) => ({
@@ -60,34 +80,69 @@ router.get("/datasets", async (_req, res): Promise<void> => {
     datasetType: r.datasetType,
     questionCount: r.questionCount ?? 0,
     createdAt: r.createdAt.toISOString(),
+    createdByName: displayName({ email: r.creatorEmail ?? null, firstName: r.creatorFirstName ?? null, lastName: r.creatorLastName ?? null }),
   })));
 });
 
-router.post("/datasets", async (req, res): Promise<void> => {
+router.post("/datasets", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
   const parsed = CreateDatasetBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const [dataset] = await db.insert(datasetsTable).values({
     datasetName: parsed.data.datasetName,
     domain: parsed.data.domain,
     datasetType: parsed.data.datasetType,
+    createdBy: uid,
   }).returning();
-  res.status(201).json({ id: dataset.id, datasetName: dataset.datasetName, domain: dataset.domain, datasetType: dataset.datasetType, questionCount: 0, createdAt: dataset.createdAt.toISOString() });
+
+  const [creator] = await db.select().from(usersTable).where(eq(usersTable.id, uid));
+  res.status(201).json({
+    id: dataset.id,
+    datasetName: dataset.datasetName,
+    domain: dataset.domain,
+    datasetType: dataset.datasetType,
+    questionCount: 0,
+    createdAt: dataset.createdAt.toISOString(),
+    createdByName: displayName(creator ?? null),
+  });
 });
 
 router.get("/datasets/:id", async (req, res): Promise<void> => {
   const params = GetDatasetParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const [row] = await db
-    .select({ id: datasetsTable.id, datasetName: datasetsTable.datasetName, domain: datasetsTable.domain, datasetType: datasetsTable.datasetType, createdAt: datasetsTable.createdAt, questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)` })
+    .select({
+      id: datasetsTable.id,
+      datasetName: datasetsTable.datasetName,
+      domain: datasetsTable.domain,
+      datasetType: datasetsTable.datasetType,
+      createdAt: datasetsTable.createdAt,
+      questionCount: sql<number>`cast(count(${questionsTable.id}) as integer)`,
+      creatorEmail: usersTable.email,
+      creatorFirstName: usersTable.firstName,
+      creatorLastName: usersTable.lastName,
+    })
     .from(datasetsTable)
     .leftJoin(questionsTable, eq(questionsTable.datasetId, datasetsTable.id))
+    .leftJoin(usersTable, eq(usersTable.id, datasetsTable.createdBy))
     .where(eq(datasetsTable.id, params.data.id))
-    .groupBy(datasetsTable.id);
+    .groupBy(datasetsTable.id, usersTable.email, usersTable.firstName, usersTable.lastName);
   if (!row) { res.status(404).json({ error: "Dataset not found" }); return; }
-  res.json({ id: row.id, datasetName: row.datasetName, domain: row.domain, datasetType: row.datasetType, questionCount: row.questionCount ?? 0, createdAt: row.createdAt.toISOString() });
+  res.json({
+    id: row.id,
+    datasetName: row.datasetName,
+    domain: row.domain,
+    datasetType: row.datasetType,
+    questionCount: row.questionCount ?? 0,
+    createdAt: row.createdAt.toISOString(),
+    createdByName: displayName({ email: row.creatorEmail ?? null, firstName: row.creatorFirstName ?? null, lastName: row.creatorLastName ?? null }),
+  });
 });
 
-router.delete("/datasets/:id", async (req, res): Promise<void> => {
+router.delete("/datasets/:id", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
   const params = DeleteDatasetParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const [ds] = await db.delete(datasetsTable).where(eq(datasetsTable.id, params.data.id)).returning();
@@ -96,7 +151,9 @@ router.delete("/datasets/:id", async (req, res): Promise<void> => {
 });
 
 // ─── Upload endpoint ────────────────────────────────────────────────────────
-router.post("/datasets/upload", async (req, res): Promise<void> => {
+router.post("/datasets/upload", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+
   const parsed = UploadDatasetBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   const { datasetId, content, format } = parsed.data;
@@ -109,7 +166,6 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
   let duplicates = 0;
   const errors: string[] = [];
 
-  // Fetch existing question texts for this dataset (for duplicate detection)
   const existingRows = await db
     .select({ questionText: questionsTable.questionText })
     .from(questionsTable)
@@ -118,15 +174,11 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
 
   try {
     if (format === "jsonl") {
-      // ── JSONL ────────────────────────────────────────────────────────────
       const lines = content.split("\n").filter((l) => l.trim());
       for (let i = 0; i < lines.length; i++) {
         try {
           const obj = JSON.parse(lines[i]);
 
-          // Support multiple field name conventions:
-          // • Standard: questionText / goldAnswer
-          // • MedQA open-ended: Question / Free_form_answer
           const questionText =
             obj.questionText ?? obj.question_text ??
             obj.Question ?? obj.question ?? "";
@@ -165,18 +217,15 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
         }
       }
     } else {
-      // ── CSV ──────────────────────────────────────────────────────────────
       const lines = content.split("\n").filter((l) => l.trim());
       if (lines.length < 2) { res.json({ imported: 0, skipped: 0, errors: ["CSV has no data rows"] }); return; }
 
       const headers = parseCSVLine(lines[0]);
 
-      // Detect MCQ format by presence of 'Question_text' and answer option columns
       const isMCQFormat =
         headers.some((h) => h === "Question_text") &&
         headers.some((h) => /^\([A-Fa-f]\)$/.test(h));
 
-      // Detect if it has answers
       const hasAnswerCol = headers.includes("Correct_answer");
 
       for (let i = 1; i < lines.length; i++) {
@@ -191,11 +240,9 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
           const metadata: Record<string, unknown> = {};
 
           if (isMCQFormat) {
-            // ── MCQ CSV format (Moaath style) ───────────────────────────
             questionType = "MCQ";
             questionText = row["Question_text"] ?? "";
 
-            // Collect choices (A)-(F), skip empty ones
             const choiceLetters = ["A", "B", "C", "D", "E", "F"];
             const choices: Record<string, string> = {};
             for (const letter of choiceLetters) {
@@ -215,7 +262,6 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
               }
             }
           } else {
-            // ── Standard CSV format ─────────────────────────────────────
             questionText = row["questionText"] ?? row["question_text"] ?? row["question"] ?? "";
             goldAnswer = row["goldAnswer"] ?? row["gold_answer"] ?? row["answer"] ?? "";
             questionType = (row["questionType"] ?? row["question_type"] ?? "OPEN_ENDED").toUpperCase() === "MCQ"
@@ -234,10 +280,7 @@ router.post("/datasets/upload", async (req, res): Promise<void> => {
             continue;
           }
 
-          // For MCQ without answer, goldAnswer can be empty (set placeholder)
-          if (!goldAnswer) {
-            goldAnswer = "(no answer provided)";
-          }
+          if (!goldAnswer) goldAnswer = "(no answer provided)";
 
           await db.insert(questionsTable).values({ datasetId, questionText, goldAnswer, questionType, metadata });
           existingTexts.add(questionText.trim().toLowerCase());

@@ -150,7 +150,12 @@ export default function Datasets() {
                   {datasets?.map((dataset) => (
                     <TableRow key={dataset.id} className="hover:bg-muted/40 group">
                       <TableCell className="pl-4 text-muted-foreground text-xs">{dataset.id}</TableCell>
-                      <TableCell className="font-medium">{dataset.datasetName}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{dataset.datasetName}</div>
+                        {dataset.createdByName && (
+                          <div className="text-xs text-muted-foreground mt-0.5">by {dataset.createdByName}</div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           <Badge variant="secondary" className="text-xs w-fit">{dataset.domain}</Badge>

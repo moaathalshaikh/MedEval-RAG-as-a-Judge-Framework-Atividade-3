@@ -20,6 +20,8 @@ export interface Model {
   /** @nullable */
   notes?: string | null;
   createdAt: string;
+  /** @nullable */
+  createdByName?: string | null;
 }
 
 export interface CreateModelBody {
@@ -59,6 +61,8 @@ export interface Dataset {
   datasetType: DatasetType;
   questionCount: number;
   createdAt: string;
+  /** @nullable */
+  createdByName?: string | null;
 }
 
 export type CreateDatasetBodyDomain =
