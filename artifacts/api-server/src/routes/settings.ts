@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, settingsTable, judgeModelsTable } from "@workspace/db";
 import { SaveApiKeysBody } from "@workspace/api-zod";
+import { callLLM, type LLMProvider } from "../lib/llm";
 
 const router: IRouter = Router();
 
@@ -148,6 +149,69 @@ router.post("/settings/judge-model", async (req: Request, res: Response): Promis
     displayName: model.displayName,
     modelVersion: modelVersion.trim(),
   });
+});
+
+// ── Delete API Keys (called on logout for security) ─────────────────────────
+
+router.delete("/settings/api-keys", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
+  for (const key of Object.values(KEY_NAMES)) {
+    await db.delete(settingsTable).where(and(eq(settingsTable.userId, uid), eq(settingsTable.key, key)));
+  }
+
+  res.json({ cleared: true });
+});
+
+// ── Test Connection (real LLM call to verify key + model) ────────────────────
+
+router.post("/settings/test-connection", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
+  const { provider, modelVersion } = req.body as { provider?: string; modelVersion?: string };
+  if (!provider || !modelVersion) {
+    res.status(400).json({ success: false, error: "provider and modelVersion are required" });
+    return;
+  }
+
+  const keyMap: Record<string, string> = {
+    OpenAI: KEY_NAMES.openai,
+    Gemini: KEY_NAMES.gemini,
+    Claude: KEY_NAMES.claude,
+    DeepSeek: KEY_NAMES.deepseek,
+  };
+
+  const apiKey = await getSetting(uid, keyMap[provider] ?? "");
+  if (!apiKey) {
+    res.status(400).json({ success: false, error: `No API key configured for ${provider}. Please save your key first.` });
+    return;
+  }
+
+  try {
+    const { text, confirmedModel } = await callLLM(
+      provider as LLMProvider,
+      modelVersion,
+      "Reply with the single word: OK",
+      apiKey
+    );
+    res.json({ success: true, confirmedModel, response: text.trim() });
+  } catch (e) {
+    const msg = String(e);
+    // Produce a readable error
+    let friendly = msg;
+    if (msg.includes("401") || msg.toLowerCase().includes("invalid api key") || msg.toLowerCase().includes("unauthorized")) {
+      friendly = "Invalid API key — please check and re-enter your key.";
+    } else if (msg.includes("404") || msg.toLowerCase().includes("model not found") || msg.toLowerCase().includes("does not exist")) {
+      friendly = `Model "${modelVersion}" not found for ${provider}. Check the model name.`;
+    } else if (msg.includes("429") || msg.toLowerCase().includes("rate limit")) {
+      friendly = "Rate limit exceeded — wait a moment and try again.";
+    } else if (msg.includes("insufficient") || msg.toLowerCase().includes("quota")) {
+      friendly = "Quota or billing issue — check your account credits.";
+    }
+    res.status(400).json({ success: false, error: friendly, raw: msg });
+  }
 });
 
 // ── Dynamic Model List (per provider, using user's API key) ─────────────────

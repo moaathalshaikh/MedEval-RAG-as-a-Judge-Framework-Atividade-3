@@ -15,212 +15,40 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, LogOut } from "lucide-react";
-import { motion } from "framer-motion";
+import { Check, X, LogOut, Wifi, WifiOff, Loader2, AlertCircle, ShieldCheck } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { currentUnifiedUser } from "@/components/auth-gate";
+import { firebaseSignOut } from "@/lib/firebase";
 
 // ── Static model lists per provider ──────────────────────────────────────────
 
 const PROVIDER_MODELS: Record<string, string[]> = {
   OpenAI: [
-    "text-embedding-ada-002",
-    "whisper-1",
-    "gpt-3.5-turbo",
-    "tts-1",
-    "gpt-3.5-turbo-16k",
-    "gpt-4-0613",
-    "gpt-4",
-    "davinci-002",
-    "babbage-002",
-    "gpt-3.5-turbo-instruct",
-    "gpt-3.5-turbo-instruct-0914",
-    "dall-e-3",
-    "dall-e-2",
-    "gpt-3.5-turbo-1106",
-    "tts-1-hd",
-    "tts-1-1106",
-    "tts-1-hd-1106",
-    "text-embedding-3-small",
-    "text-embedding-3-large",
-    "gpt-3.5-turbo-0125",
-    "gpt-4-turbo",
-    "gpt-4-turbo-2024-04-09",
-    "gpt-4o",
-    "gpt-4o-2024-05-13",
-    "gpt-4o-mini-2024-07-18",
-    "gpt-4o-mini",
-    "gpt-4o-2024-08-06",
-    "gpt-4o-audio-preview",
-    "gpt-4o-realtime-preview",
-    "omni-moderation-latest",
-    "omni-moderation-2024-09-26",
-    "gpt-4o-realtime-preview-2024-12-17",
-    "gpt-4o-audio-preview-2024-12-17",
-    "gpt-4o-mini-realtime-preview-2024-12-17",
-    "gpt-4o-mini-audio-preview-2024-12-17",
-    "o1-2024-12-17",
-    "o1",
-    "gpt-4o-mini-realtime-preview",
-    "gpt-4o-mini-audio-preview",
-    "o3-mini",
-    "o3-mini-2025-01-31",
-    "gpt-4o-2024-11-20",
-    "gpt-4o-mini-search-preview-2025-03-11",
-    "gpt-4o-mini-search-preview",
-    "gpt-4o-transcribe",
-    "gpt-4o-mini-transcribe",
-    "o1-pro-2025-03-19",
-    "o1-pro",
-    "gpt-4o-mini-tts",
-    "o3-2025-04-16",
-    "o4-mini-2025-04-16",
-    "o3",
-    "o4-mini",
-    "gpt-4.1-2025-04-14",
-    "gpt-4.1",
-    "gpt-4.1-mini-2025-04-14",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano-2025-04-14",
-    "gpt-4.1-nano",
-    "gpt-image-1",
-    "gpt-4o-realtime-preview-2025-06-03",
-    "gpt-4o-audio-preview-2025-06-03",
-    "gpt-4o-transcribe-diarize",
-    "gpt-5-chat-latest",
-    "gpt-5-2025-08-07",
-    "gpt-5",
-    "gpt-5-mini-2025-08-07",
-    "gpt-5-mini",
-    "gpt-5-nano-2025-08-07",
-    "gpt-5-nano",
-    "gpt-audio-2025-08-28",
-    "gpt-realtime",
-    "gpt-realtime-2025-08-28",
-    "gpt-audio",
-    "gpt-5-codex",
-    "gpt-image-1-mini",
-    "gpt-5-pro-2025-10-06",
-    "gpt-5-pro",
-    "gpt-audio-mini",
-    "gpt-audio-mini-2025-10-06",
-    "gpt-5-search-api",
-    "gpt-realtime-mini",
-    "gpt-realtime-mini-2025-10-06",
-    "sora-2",
-    "sora-2-pro",
-    "gpt-5-search-api-2025-10-14",
-    "gpt-5.1-chat-latest",
-    "gpt-5.1-2025-11-13",
-    "gpt-5.1",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-mini",
-    "gpt-5.1-codex-max",
-    "gpt-image-1.5",
-    "gpt-5.2-2025-12-11",
-    "gpt-5.2",
-    "gpt-5.2-pro-2025-12-11",
-    "gpt-5.2-pro",
-    "gpt-5.2-chat-latest",
-    "gpt-4o-mini-transcribe-2025-12-15",
-    "gpt-4o-mini-transcribe-2025-03-20",
-    "gpt-4o-mini-tts-2025-03-20",
-    "gpt-4o-mini-tts-2025-12-15",
-    "gpt-realtime-mini-2025-12-15",
-    "gpt-audio-mini-2025-12-15",
-    "chatgpt-image-latest",
-    "gpt-5.2-codex",
-    "gpt-5.3-codex",
-    "gpt-realtime-1.5",
-    "gpt-audio-1.5",
-    "gpt-4o-search-preview",
-    "gpt-4o-search-preview-2025-03-11",
-    "gpt-5.3-chat-latest",
-    "gpt-5.4-2026-03-05",
-    "gpt-5.4-pro",
-    "gpt-5.4-pro-2026-03-05",
-    "gpt-5.4",
-    "gpt-5.4-nano-2026-03-17",
-    "gpt-5.4-nano",
-    "gpt-5.4-mini-2026-03-17",
-    "gpt-5.4-mini",
-    "gpt-image-2",
-    "gpt-image-2-2026-04-21",
-    "gpt-5.5",
-    "gpt-5.5-2026-04-23",
-    "gpt-5.5-pro",
-    "gpt-5.5-pro-2026-04-23",
+    "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-08-06", "gpt-4o-2024-11-20",
+    "gpt-4-turbo", "gpt-4-turbo-2024-04-09", "gpt-4", "gpt-4-0613",
+    "gpt-3.5-turbo", "gpt-3.5-turbo-0125", "gpt-3.5-turbo-1106",
+    "o1", "o1-2024-12-17", "o3", "o3-2025-04-16", "o3-mini", "o3-mini-2025-01-31",
+    "o4-mini", "o4-mini-2025-04-16",
+    "gpt-4.1", "gpt-4.1-2025-04-14", "gpt-4.1-mini", "gpt-4.1-mini-2025-04-14",
+    "gpt-4.1-nano", "gpt-4.1-nano-2025-04-14",
+    "gpt-4o-search-preview", "gpt-4o-mini-search-preview",
   ],
   Gemini: [
-    "models/gemini-2.5-flash",
-    "models/gemini-2.5-pro",
-    "models/gemini-2.0-flash",
-    "models/gemini-2.0-flash-001",
-    "models/gemini-2.0-flash-lite-001",
-    "models/gemini-2.0-flash-lite",
-    "models/gemini-2.5-flash-preview-tts",
-    "models/gemini-2.5-pro-preview-tts",
-    "models/gemma-3-1b-it",
-    "models/gemma-3-4b-it",
-    "models/gemma-3-12b-it",
-    "models/gemma-3-27b-it",
-    "models/gemma-3n-e4b-it",
-    "models/gemma-3n-e2b-it",
-    "models/gemma-4-26b-a4b-it",
-    "models/gemma-4-31b-it",
-    "models/gemini-flash-latest",
-    "models/gemini-flash-lite-latest",
-    "models/gemini-pro-latest",
-    "models/gemini-2.5-flash-lite",
-    "models/gemini-2.5-flash-image",
-    "models/gemini-3-pro-preview",
-    "models/gemini-3-flash-preview",
-    "models/gemini-3.1-pro-preview",
-    "models/gemini-3.1-pro-preview-customtools",
-    "models/gemini-3.1-flash-lite-preview",
-    "models/gemini-3-pro-image-preview",
-    "models/nano-banana-pro-preview",
-    "models/gemini-3.1-flash-image-preview",
-    "models/lyria-3-clip-preview",
-    "models/lyria-3-pro-preview",
-    "models/gemini-3.1-flash-tts-preview",
-    "models/gemini-robotics-er-1.5-preview",
-    "models/gemini-robotics-er-1.6-preview",
-    "models/gemini-2.5-computer-use-preview-10-2025",
-    "models/deep-research-max-preview-04-2026",
-    "models/deep-research-preview-04-2026",
-    "models/deep-research-pro-preview-12-2025",
-    "models/gemini-embedding-001",
-    "models/gemini-embedding-2-preview",
-    "models/gemini-embedding-2",
-    "models/aqa",
-    "models/imagen-4.0-generate-001",
-    "models/imagen-4.0-ultra-generate-001",
-    "models/imagen-4.0-fast-generate-001",
-    "models/veo-2.0-generate-001",
-    "models/veo-3.0-generate-001",
-    "models/veo-3.0-fast-generate-001",
-    "models/veo-3.1-generate-preview",
-    "models/veo-3.1-fast-generate-preview",
-    "models/veo-3.1-lite-generate-preview",
-    "models/gemini-2.5-flash-native-audio-latest",
-    "models/gemini-2.5-flash-native-audio-preview-09-2025",
-    "models/gemini-2.5-flash-native-audio-preview-12-2025",
-    "models/gemini-3.1-flash-live-preview",
+    "models/gemini-2.5-pro", "models/gemini-2.5-flash", "models/gemini-2.5-flash-lite",
+    "models/gemini-2.0-flash", "models/gemini-2.0-flash-001", "models/gemini-2.0-flash-lite",
+    "models/gemini-flash-latest", "models/gemini-pro-latest",
+    "models/gemma-3-27b-it", "models/gemma-3-12b-it", "models/gemma-3-4b-it", "models/gemma-3-1b-it",
   ],
   DeepSeek: [
     "deepseek-v4-flash",
     "deepseek-v4-pro",
   ],
   Claude: [
-    "claude-opus-4-7",
-    "claude-sonnet-4-6",
-    "claude-opus-4-6",
-    "claude-opus-4-5-20251101",
-    "claude-haiku-4-5-20251001",
-    "claude-sonnet-4-5-20250929",
+    "claude-opus-4-20250514", "claude-sonnet-4-20250514",
+    "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001",
+    "claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4-7",
     "claude-opus-4-1-20250805",
-    "claude-opus-4-20250514",
-    "claude-sonnet-4-20250514",
   ],
 };
 
@@ -246,6 +74,8 @@ interface ProviderRow {
   provider: string;
   displayName: string;
 }
+
+type TestStatus = "idle" | "testing" | "success" | "error";
 
 const PROVIDER_META: Record<string, {
   label: string;
@@ -274,7 +104,7 @@ function useJudgeModel() {
 function useJudgeProviders() {
   return useQuery<ProviderRow[]>({
     queryKey: ["settings", "judge-models-list"],
-    queryFn: () => fetch("/api/settings/judge-models").then((r) => r.json()),
+    queryFn: () => fetch("/api/settings/judge-models", { credentials: "include" }).then((r) => r.json()),
   });
 }
 
@@ -289,7 +119,7 @@ function useSetJudgeModel() {
         body: JSON.stringify(body),
       }).then(async (r) => {
         if (!r.ok) throw await r.json();
-        return r.json();
+        return r.json() as Promise<JudgeModelConfig>;
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings", "judge-model"] });
@@ -297,20 +127,46 @@ function useSetJudgeModel() {
   });
 }
 
+function useTestConnection() {
+  return useMutation<
+    { success: boolean; confirmedModel?: string; response?: string },
+    { error: string },
+    { provider: string; modelVersion: string }
+  >({
+    mutationFn: (body) =>
+      fetch("/api/settings/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        const data = await r.json();
+        if (!r.ok) throw data;
+        return data;
+      }),
+  });
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Settings() {
-  const { user, logout } = useAuth();
+  const { logout: replitLogout } = useAuth();
   const { data: status, isLoading: isLoadingKeys } = useGetApiKeyStatus();
   const { data: judgeModel, isLoading: isLoadingJudge } = useJudgeModel();
   const { data: providers, isLoading: isLoadingProviders } = useJudgeProviders();
   const saveKeys = useSaveApiKeys();
   const setJudgeModel = useSetJudgeModel();
+  const testConn = useTestConnection();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const user = currentUnifiedUser;
+
   const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
   const [modelVersion, setModelVersion] = useState("");
+  const [testStatus, setTestStatus] = useState<TestStatus>("idle");
+  const [testMessage, setTestMessage] = useState("");
+  const [testConfirmedModel, setTestConfirmedModel] = useState("");
 
   const selectedProvider = providers?.find((p) => p.id === selectedProviderId);
   const selectedMeta = selectedProvider ? PROVIDER_META[selectedProvider.provider] : null;
@@ -321,12 +177,30 @@ export default function Settings() {
     defaultValues: { openaiKey: "", geminiKey: "", deepseekKey: "", claudeKey: "" },
   });
 
+  async function handleLogout() {
+    // Delete API keys from DB before logging out for security
+    try {
+      await fetch("/api/settings/api-keys", { method: "DELETE", credentials: "include" });
+    } catch { /* ignore errors — proceed with logout anyway */ }
+
+    if (user?.provider === "firebase") {
+      await firebaseSignOut();
+      await fetch("/api/auth/firebase-logout", { method: "POST", credentials: "include" });
+      window.location.reload();
+    } else {
+      replitLogout();
+    }
+  }
+
   function onSaveKeys(data: KeysFormValues) {
     saveKeys.mutate({ data }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetApiKeyStatusQueryKey() });
         keysForm.reset();
-        toast({ title: "API keys saved", description: "Provider credentials updated successfully." });
+        // Reset test status since keys changed
+        setTestStatus("idle");
+        setTestMessage("");
+        toast({ title: "API keys saved", description: "Your credentials have been updated." });
       },
       onError: (err) => {
         toast({ title: "Failed to save", description: (err as { error?: string }).error || "An error occurred", variant: "destructive" });
@@ -336,6 +210,9 @@ export default function Settings() {
 
   function handleSelectProvider(p: ProviderRow) {
     setSelectedProviderId(p.id);
+    setTestStatus("idle");
+    setTestMessage("");
+    setTestConfirmedModel("");
     if (judgeModel?.judgeModelId === p.id && judgeModel.modelVersion) {
       setModelVersion(judgeModel.modelVersion);
     } else {
@@ -343,22 +220,62 @@ export default function Settings() {
     }
   }
 
-  function handleSaveJudge() {
-    if (!selectedProviderId || !modelVersion.trim()) return;
-    setJudgeModel.mutate({ judgeModelId: selectedProviderId, modelVersion: modelVersion.trim() }, {
-      onSuccess: (data: JudgeModelConfig) => {
-        setSelectedProviderId(null);
-        setModelVersion("");
-        toast({ title: "Judge model saved", description: `Now using ${data.modelVersion} via ${data.displayName}.` });
-      },
-      onError: () => {
-        toast({ title: "Failed to save", description: "Could not save judge model.", variant: "destructive" });
-      },
-    });
+  function handleModelChange(v: string) {
+    setModelVersion(v);
+    setTestStatus("idle");
+    setTestMessage("");
+    setTestConfirmedModel("");
   }
 
+  function handleTestConnection() {
+    if (!selectedProvider || !modelVersion) return;
+    setTestStatus("testing");
+    setTestMessage("");
+    setTestConfirmedModel("");
+    testConn.mutate(
+      { provider: selectedProvider.provider, modelVersion },
+      {
+        onSuccess: (res) => {
+          setTestStatus("success");
+          setTestConfirmedModel(res.confirmedModel ?? modelVersion);
+          setTestMessage(`Response: "${res.response}"`);
+        },
+        onError: (err) => {
+          setTestStatus("error");
+          setTestMessage(err.error ?? "Connection failed");
+        },
+      }
+    );
+  }
+
+  function handleSaveJudge() {
+    if (!selectedProviderId || !modelVersion.trim()) return;
+    setJudgeModel.mutate(
+      { judgeModelId: selectedProviderId, modelVersion: modelVersion.trim() },
+      {
+        onSuccess: (data: JudgeModelConfig) => {
+          setSelectedProviderId(null);
+          setModelVersion("");
+          setTestStatus("idle");
+          setTestMessage("");
+          toast({ title: "Judge model saved", description: `Now using ${data.modelVersion} via ${data.displayName}.` });
+        },
+        onError: () => {
+          toast({ title: "Failed to save", description: "Could not save judge model.", variant: "destructive" });
+        },
+      }
+    );
+  }
+
+  // Determine if the active judge model has its API key configured
   const activeProvider = providers?.find((p) => p.id === judgeModel?.judgeModelId);
   const activeMeta = activeProvider ? PROVIDER_META[activeProvider.provider] : null;
+  const activeHasKey = activeMeta && status ? !!status[activeMeta.statusKey] : false;
+
+  const displayName = user?.displayName ?? null;
+  const initials = displayName
+    ? displayName.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
 
   return (
     <motion.div
@@ -374,54 +291,82 @@ export default function Settings() {
           <p className="text-sm text-muted-foreground mt-1">Configure your judge model and API credentials</p>
         </div>
         {user && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <div className="text-right">
-              <p className="text-sm font-medium text-foreground">
-                {user.firstName ? `${user.firstName}${user.lastName ? " " + user.lastName : ""}` : user.email ?? "User"}
-              </p>
-              {user.email && user.firstName && (
-                <p className="text-xs text-muted-foreground">{user.email}</p>
-              )}
+              <p className="text-sm font-semibold text-foreground">{displayName}</p>
+              {user.email && <p className="text-xs text-muted-foreground">{user.email}</p>}
             </div>
             {user.profileImageUrl ? (
-              <img src={user.profileImageUrl} alt="avatar" className="w-8 h-8 rounded-full border border-border" />
+              <img src={user.profileImageUrl} alt="avatar" className="w-9 h-9 rounded-full border border-border" />
             ) : (
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm">
-                {(user.firstName?.[0] ?? user.email?.[0] ?? "U").toUpperCase()}
+              <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                {initials}
               </div>
             )}
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={logout} title="Log out">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              onClick={handleLogout}
+              title="Log out (clears API keys)"
+            >
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
         )}
       </div>
 
+      {/* Security notice */}
+      <div className="flex items-start gap-2.5 px-3.5 py-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+        <ShieldCheck className="h-4 w-4 shrink-0 mt-0.5 text-blue-500" />
+        <span>
+          Your API keys are stored privately per account and <strong>deleted automatically on logout</strong> — they are never shared or exposed to other users.
+        </span>
+      </div>
+
       {/* Judge Model Card */}
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
-          <p className="text-xs text-muted-foreground">The LLM responsible for evaluating all model responses</p>
+          <p className="text-xs text-muted-foreground">The large LLM that generates reference answers and evaluates responses</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {isLoadingJudge ? (
+          {/* Active model status */}
+          {isLoadingJudge || isLoadingKeys ? (
             <Skeleton className="h-14 w-full" />
           ) : judgeModel?.judgeModelId && judgeModel.modelVersion ? (
-            <div className={`flex items-center justify-between p-3 rounded-lg border ${activeMeta?.bg} ${activeMeta?.border}`}>
+            <div className={`flex items-center justify-between p-3 rounded-lg border ${
+              activeHasKey
+                ? `${activeMeta?.bg} ${activeMeta?.border}`
+                : "bg-red-50 border-red-300"
+            }`}>
               <div>
-                <p className={`font-semibold text-sm ${activeMeta?.text}`}>{judgeModel.modelVersion}</p>
-                <p className={`text-xs mt-0.5 opacity-70 ${activeMeta?.text}`}>{activeMeta?.label}</p>
+                <p className={`font-semibold text-sm ${activeHasKey ? activeMeta?.text : "text-red-700"}`}>
+                  {judgeModel.modelVersion}
+                </p>
+                <p className={`text-xs mt-0.5 opacity-70 ${activeHasKey ? activeMeta?.text : "text-red-600"}`}>
+                  {activeMeta?.label}
+                </p>
               </div>
-              <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${activeMeta?.bg} ${activeMeta?.text} border ${activeMeta?.border}`}>
-                Active
-              </span>
+              {activeHasKey ? (
+                <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${activeMeta?.bg} ${activeMeta?.text} ${activeMeta?.border}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${activeMeta?.dot}`} />
+                  Active
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border bg-red-50 border-red-300 text-red-600">
+                  <AlertCircle className="h-3 w-3" />
+                  No API key
+                </span>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-xs text-amber-700">No judge model configured. Select a provider below.</p>
+              <p className="text-xs text-amber-700">No judge model configured. Select a provider and model below.</p>
             </div>
           )}
 
+          {/* Provider selection */}
           {isLoadingProviders ? (
             <div className="grid grid-cols-2 gap-2">
               {[0,1,2,3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
@@ -432,10 +377,10 @@ export default function Settings() {
                 {judgeModel?.judgeModelId ? "Change judge model" : "Select a provider"}
               </p>
 
-              {/* Provider grid */}
               <div className="grid grid-cols-2 gap-2">
                 {providers?.map((p) => {
                   const meta = PROVIDER_META[p.provider];
+                  const providerHasKey = status ? !!status[meta.statusKey] : false;
                   const isActive = judgeModel?.judgeModelId === p.id && !selectedProviderId;
                   const isSelected = selectedProviderId === p.id;
                   return (
@@ -452,7 +397,7 @@ export default function Settings() {
                       }`}
                     >
                       <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${meta.dot}`} />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className={`text-sm font-medium truncate ${isSelected || isActive ? meta.text : "text-foreground"}`}>
                           {meta.label}
                         </p>
@@ -460,12 +405,17 @@ export default function Settings() {
                           <p className={`text-xs truncate opacity-70 ${meta.text}`}>{judgeModel.modelVersion}</p>
                         )}
                       </div>
+                      {/* Key indicator dot */}
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${providerHasKey ? "bg-green-500" : "bg-muted-foreground/30"}`}
+                        title={providerHasKey ? "API key configured" : "No API key"}
+                      />
                     </button>
                   );
                 })}
               </div>
 
-              {/* Model selection panel */}
+              {/* Model selection + test panel */}
               {selectedProvider && selectedMeta && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
@@ -476,44 +426,130 @@ export default function Settings() {
                     <label className={`text-xs font-semibold uppercase tracking-wide ${selectedMeta.text}`}>
                       {selectedMeta.label} model
                     </label>
-                    <p className="text-xs text-muted-foreground">
-                      {staticModels.length} models available
-                    </p>
+                    {!status?.[selectedMeta.statusKey] && (
+                      <p className="text-xs text-amber-600 flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" />
+                        Save your {selectedMeta.label} API key below before testing
+                      </p>
+                    )}
                   </div>
 
-                  {/* Static dropdown */}
-                  <Select value={modelVersion} onValueChange={setModelVersion}>
+                  {/* Model dropdown */}
+                  <Select value={modelVersion} onValueChange={handleModelChange}>
                     <SelectTrigger className={`bg-background border ${selectedMeta.border} h-9 text-sm focus:ring-2 focus:ring-offset-1 ${selectedMeta.ring}`}>
                       <SelectValue placeholder="— select a model —" />
                     </SelectTrigger>
                     <SelectContent className="max-h-64">
                       {staticModels.map((m) => (
-                        <SelectItem key={m} value={m} className="text-sm font-mono">
-                          {m}
-                        </SelectItem>
+                        <SelectItem key={m} value={m} className="text-sm font-mono">{m}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
 
+                  {/* Test connection result */}
+                  <AnimatePresence>
+                    {testStatus !== "idle" && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className={`flex items-start gap-2.5 p-2.5 rounded-lg border text-xs ${
+                          testStatus === "success"
+                            ? "bg-green-50 border-green-300 text-green-700"
+                            : testStatus === "error"
+                            ? "bg-red-50 border-red-300 text-red-700"
+                            : "bg-background border-border text-muted-foreground"
+                        }`}
+                      >
+                        {testStatus === "testing" && <Loader2 className="h-3.5 w-3.5 shrink-0 mt-0.5 animate-spin" />}
+                        {testStatus === "success" && <Wifi className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-600" />}
+                        {testStatus === "error" && <WifiOff className="h-3.5 w-3.5 shrink-0 mt-0.5 text-red-600" />}
+                        <div>
+                          {testStatus === "testing" && <span>Connecting to {selectedMeta.label}…</span>}
+                          {testStatus === "success" && (
+                            <div>
+                              <p className="font-semibold">Connected successfully</p>
+                              {testConfirmedModel && (
+                                <p className="opacity-80 mt-0.5">Model: <span className="font-mono">{testConfirmedModel}</span></p>
+                              )}
+                              {testMessage && <p className="opacity-60 mt-0.5">{testMessage}</p>}
+                            </div>
+                          )}
+                          {testStatus === "error" && (
+                            <div>
+                              <p className="font-semibold">Connection failed</p>
+                              <p className="opacity-80 mt-0.5">{testMessage}</p>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   {/* Actions */}
                   <div className="flex gap-2">
+                    {/* Test connection */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleTestConnection}
+                      disabled={!modelVersion || testStatus === "testing" || !status?.[selectedMeta.statusKey]}
+                      className={`h-9 gap-1.5 ${
+                        testStatus === "success"
+                          ? "border-green-400 text-green-700 bg-green-50 hover:bg-green-100"
+                          : testStatus === "error"
+                          ? "border-red-400 text-red-700 bg-red-50 hover:bg-red-100"
+                          : ""
+                      }`}
+                      title={!status?.[selectedMeta.statusKey] ? "Save API key first" : undefined}
+                    >
+                      {testStatus === "testing" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : testStatus === "success" ? (
+                        <Wifi className="h-3.5 w-3.5" />
+                      ) : testStatus === "error" ? (
+                        <WifiOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Wifi className="h-3.5 w-3.5" />
+                      )}
+                      {testStatus === "testing" ? "Testing…" : testStatus === "success" ? "Connected" : testStatus === "error" ? "Retry Test" : "Test Connection"}
+                    </Button>
+
+                    {/* Save — only enabled if test passed */}
                     <Button
                       size="sm"
                       onClick={handleSaveJudge}
-                      disabled={!modelVersion.trim() || setJudgeModel.isPending}
-                      className="h-9 px-4"
+                      disabled={!modelVersion.trim() || setJudgeModel.isPending || testStatus !== "success"}
+                      className="h-9 px-4 gap-1.5"
+                      title={testStatus !== "success" ? "Run Test Connection first" : undefined}
                     >
-                      {setJudgeModel.isPending ? "Saving…" : "Save"}
+                      {setJudgeModel.isPending ? (
+                        <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</>
+                      ) : (
+                        <><Check className="h-3.5 w-3.5" /> Save</>
+                      )}
                     </Button>
+
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => { setSelectedProviderId(null); setModelVersion(""); }}
+                      onClick={() => {
+                        setSelectedProviderId(null);
+                        setModelVersion("");
+                        setTestStatus("idle");
+                        setTestMessage("");
+                      }}
                       className="h-9 px-3 text-muted-foreground"
                     >
                       Cancel
                     </Button>
                   </div>
+
+                  {testStatus !== "success" && modelVersion && status?.[selectedMeta.statusKey] && (
+                    <p className="text-xs text-muted-foreground">
+                      Run <strong>Test Connection</strong> to verify the model is reachable before saving.
+                    </p>
+                  )}
                 </motion.div>
               )}
             </div>
@@ -525,7 +561,9 @@ export default function Settings() {
       <Card>
         <CardHeader className="pb-4">
           <CardTitle className="text-sm font-semibold">API Keys</CardTitle>
-          <p className="text-xs text-muted-foreground">Your private credentials — each account has its own isolated keys</p>
+          <p className="text-xs text-muted-foreground">
+            Your private credentials — isolated per account, cleared on logout
+          </p>
         </CardHeader>
         <CardContent>
           {isLoadingKeys ? (

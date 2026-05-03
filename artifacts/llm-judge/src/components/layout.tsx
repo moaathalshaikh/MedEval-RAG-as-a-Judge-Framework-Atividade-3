@@ -60,6 +60,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const user = currentUnifiedUser;
 
   async function handleLogout() {
+    // Always delete API keys from DB first for security
+    try {
+      await fetch("/api/settings/api-keys", { method: "DELETE", credentials: "include" });
+    } catch { /* proceed regardless */ }
+
     if (user?.provider === "firebase") {
       await firebaseSignOut();
       await fetch("/api/auth/firebase-logout", { method: "POST", credentials: "include" });
