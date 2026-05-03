@@ -157,9 +157,9 @@ export default function Datasets() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {datasets?.map((dataset) => (
+                  {datasets?.map((dataset, idx) => (
                     <TableRow key={dataset.id} className="hover:bg-muted/40 group">
-                      <TableCell className="pl-4 text-muted-foreground text-xs">{dataset.id}</TableCell>
+                      <TableCell className="pl-4 text-muted-foreground text-xs">{idx + 1}</TableCell>
                       <TableCell>
                         <div className="font-medium">{dataset.datasetName}</div>
                       </TableCell>
