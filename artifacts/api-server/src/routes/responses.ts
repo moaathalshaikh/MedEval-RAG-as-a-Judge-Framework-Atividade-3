@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, sql } from "drizzle-orm";
 import { db, modelResponsesTable, questionsTable, modelsTable, datasetsTable, referenceAnswersTable } from "@workspace/db";
+import { logActivity } from "../lib/activity";
 import {
   GenerateResponsesBody,
   GetResponseParams,
@@ -279,6 +280,12 @@ router.post("/responses/import", async (req: Request, res: Response): Promise<vo
     }
   }
 
+  if (imported > 0) {
+    const modelName = responses[0]?.modelId
+      ? (await db.select().from(modelsTable).where(eq(modelsTable.id, responses[0].modelId)))[0]?.modelName ?? `Model #${responses[0].modelId}`
+      : "unknown model";
+    await logActivity(req, { action: "IMPORT_RESPONSES", entityType: "response", entityName: modelName, details: `Imported ${imported} responses for "${modelName}" (${skipped} skipped)` });
+  }
   res.json({ imported, skipped, errors, suggestedDataset });
 });
 
@@ -293,6 +300,7 @@ router.delete("/results/clear-all", async (req: Request, res: Response): Promise
     .returning({ id: referenceAnswersTable.id })
     .then((rows) => [{ deletedRefs: rows.length }]);
 
+  await logActivity(req, { action: "CLEAR_ALL_RESULTS", entityType: "results", entityName: "All Results", details: `Cleared all results: ${deletedResponses} responses and ${deletedRefs} reference answers deleted` });
   res.json({ deletedResponses, deletedRefs });
 });
 
@@ -311,6 +319,7 @@ router.delete("/responses/:id", async (req: Request, res: Response): Promise<voi
     return;
   }
 
+  await logActivity(req, { action: "DELETE_RESPONSE", entityType: "response", entityName: `Response #${id}`, details: `Deleted model response #${id}` });
   await db.delete(modelResponsesTable).where(eq(modelResponsesTable.id, id));
   res.json({ deleted: true });
 });

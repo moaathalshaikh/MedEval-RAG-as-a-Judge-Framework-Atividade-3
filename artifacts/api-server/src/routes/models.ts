@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq } from "drizzle-orm";
 import { db, modelsTable } from "@workspace/db";
 import { usersTable } from "@workspace/db";
+import { logActivity } from "../lib/activity";
 import {
   CreateModelBody,
   UpdateModelBody,
@@ -76,6 +77,7 @@ router.post("/models", async (req: Request, res: Response): Promise<void> => {
   }).returning();
 
   const [creator] = await db.select().from(usersTable).where(eq(usersTable.id, uid));
+  await logActivity(req, { action: "ADD_MODEL", entityType: "model", entityName: model.modelName, details: `Added SLM model "${model.modelName}"${parsed.data.modelSize ? ` (${parsed.data.modelSize})` : ""}` });
   res.status(201).json(formatModel(model, displayName(creator ?? null)));
 });
 
@@ -154,6 +156,7 @@ router.patch("/models/:id", async (req: Request, res: Response): Promise<void> =
     .leftJoin(usersTable, eq(usersTable.id, modelsTable.createdBy))
     .where(eq(modelsTable.id, model.id));
 
+  await logActivity(req, { action: "RENAME_MODEL", entityType: "model", entityName: model.modelName, details: `Renamed model to "${model.modelName}"` });
   res.json(formatModel(row.model, displayName({
     email: row.creatorEmail ?? null,
     firstName: row.creatorFirstName ?? null,
@@ -181,6 +184,7 @@ router.delete("/models/:id", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
+  await logActivity(req, { action: "DELETE_MODEL", entityType: "model", entityName: existing.modelName, details: `Deleted SLM model "${existing.modelName}"` });
   await db.delete(modelsTable).where(eq(modelsTable.id, params.data.id));
   res.sendStatus(204);
 });

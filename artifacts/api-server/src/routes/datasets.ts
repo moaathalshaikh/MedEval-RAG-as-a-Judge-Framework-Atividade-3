@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, sql } from "drizzle-orm";
 import { db, datasetsTable, questionsTable } from "@workspace/db";
 import { usersTable } from "@workspace/db";
+import { logActivity } from "../lib/activity";
 import {
   CreateDatasetBody,
   GetDatasetParams,
@@ -101,6 +102,7 @@ router.post("/datasets", async (req: Request, res: Response): Promise<void> => {
   }).returning();
 
   const [creator] = await db.select().from(usersTable).where(eq(usersTable.id, uid));
+  await logActivity(req, { action: "ADD_DATASET", entityType: "dataset", entityName: dataset.datasetName, details: `Created ${dataset.datasetType} dataset "${dataset.datasetName}"` });
   res.status(201).json({
     id: dataset.id,
     datasetName: dataset.datasetName,
@@ -170,6 +172,7 @@ router.patch("/datasets/:id/rename", async (req: Request, res: Response): Promis
     .where(eq(datasetsTable.id, params.data.id))
     .returning();
 
+  await logActivity(req, { action: "RENAME_DATASET", entityType: "dataset", entityName: updated.datasetName, details: `Renamed dataset from "${existing.datasetName}" to "${updated.datasetName}"` });
   res.json({ id: updated.id, datasetName: updated.datasetName });
 });
 
@@ -186,6 +189,7 @@ router.delete("/datasets/:id", async (req: Request, res: Response): Promise<void
     return;
   }
 
+  await logActivity(req, { action: "DELETE_DATASET", entityType: "dataset", entityName: existing.datasetName, details: `Deleted dataset "${existing.datasetName}" (${existing.datasetType})` });
   await db.delete(datasetsTable).where(eq(datasetsTable.id, params.data.id));
   res.sendStatus(204);
 });
@@ -336,6 +340,7 @@ router.post("/datasets/upload", async (req: Request, res: Response): Promise<voi
     return;
   }
 
+  await logActivity(req, { action: "UPLOAD_QUESTIONS", entityType: "dataset", entityName: dataset.datasetName, details: `Uploaded ${imported} questions to dataset "${dataset.datasetName}" (${skipped} skipped, ${duplicates} duplicates)` });
   res.json({ imported, skipped, duplicates, errors });
 });
 

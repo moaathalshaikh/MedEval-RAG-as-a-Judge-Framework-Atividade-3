@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, inArray } from "drizzle-orm";
 import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable, judgeModelsTable, settingsTable, referenceAnswersTable } from "@workspace/db";
+import { logActivity } from "../lib/activity";
 import {
   RunJudgeBody,
   GetEvaluationParams,
@@ -266,6 +267,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
     }
   }
 
+  await logActivity(req, { action: "RUN_EVALUATION", entityType: "evaluation", entityName: judgeModel.displayName, details: `Ran judge evaluation: ${evaluated} evaluated, ${skipped} skipped using "${judgeModel.displayName} (${resolvedModelVersion})"` });
   res.json({ evaluated, skipped, errors });
 });
 
@@ -284,6 +286,7 @@ router.delete("/evaluations/:id", async (req: Request, res: Response): Promise<v
     return;
   }
 
+  await logActivity(req, { action: "DELETE_EVALUATION", entityType: "evaluation", entityName: `Evaluation #${id}`, details: `Deleted evaluation #${id}` });
   await db.delete(judgeEvaluationsTable).where(eq(judgeEvaluationsTable.id, id));
   res.json({ deleted: true });
 });

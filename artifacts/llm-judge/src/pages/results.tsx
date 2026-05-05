@@ -319,23 +319,23 @@ export default function Results() {
       <Dialog open={showClearAll} onOpenChange={(o) => !o && setShowClearAll(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>مسح جميع النتائج؟</DialogTitle>
+            <DialogTitle>Clear all results?</DialogTitle>
             <DialogDescription asChild>
               <div className="space-y-2 pt-1">
-                <p>سيتم حذف ما يلي بشكل نهائي:</p>
+                <p>The following will be permanently deleted:</p>
                 <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
-                  <li>جميع ردود النماذج (Model Responses)</li>
-                  <li>جميع تقييمات القاضي (Judge Evaluations)</li>
-                  <li>جميع الإجابات المرجعية (Reference Answers)</li>
+                  <li>All model responses</li>
+                  <li>All judge evaluations (cascaded)</li>
+                  <li>All reference answers</li>
                 </ul>
-                <p className="text-sm font-medium text-foreground pt-1">تبقى: الأسئلة، الـ Datasets، والنماذج.</p>
+                <p className="text-sm font-medium text-foreground pt-1">Kept intact: Questions, Datasets, and Models.</p>
               </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearAll(false)} disabled={isClearing}>إلغاء</Button>
+            <Button variant="outline" onClick={() => setShowClearAll(false)} disabled={isClearing}>Cancel</Button>
             <Button variant="destructive" onClick={clearAllResults} disabled={isClearing}>
-              {isClearing ? "جارٍ المسح…" : "مسح كل النتائج"}
+              {isClearing ? "Clearing…" : "Clear all results"}
             </Button>
           </DialogFooter>
         </DialogContent>

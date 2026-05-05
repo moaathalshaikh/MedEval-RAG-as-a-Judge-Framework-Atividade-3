@@ -17,6 +17,7 @@ import Results from "@/pages/results";
 import Analytics from "@/pages/analytics";
 import Settings from "@/pages/settings";
 import EmailAction from "@/pages/email-action";
+import History from "@/pages/history";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ function Router() {
         <Route path="/evaluate" component={Evaluate} />
         <Route path="/results" component={Results} />
         <Route path="/analytics" component={Analytics} />
+        <Route path="/history" component={History} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />
       </Switch>
