@@ -14,17 +14,16 @@ export async function logActivity(req: Request, params: ActivityParams): Promise
     const user = req.user as any;
     if (!user?.id) return;
 
-    // Always fetch fresh user data from DB to get the real email/name
+    // Fetch fresh user data from DB to get real email/name
     const [dbUser] = await db.select().from(usersTable).where(eq(usersTable.id, user.id));
 
+    // Build display values — never block logging due to missing email
     const userEmail: string =
       dbUser?.email ??
       user.email ??
-      null;
+      `uid:${user.id}`;
 
-    if (!userEmail) return; // no email means we can't log meaningfully
-
-    const fullName =
+    const fullName: string | null =
       [dbUser?.firstName, dbUser?.lastName].filter(Boolean).join(" ").trim() ||
       [user.firstName, user.lastName].filter(Boolean).join(" ").trim() ||
       null;
@@ -33,9 +32,9 @@ export async function logActivity(req: Request, params: ActivityParams): Promise
       action: params.action,
       entityType: params.entityType ?? null,
       entityName: params.entityName ?? null,
-      userId: user.id ?? null,
+      userId: user.id,
       userEmail,
-      userName: fullName ?? null,
+      userName: fullName,
       details: params.details ?? null,
     });
   } catch (err) {
