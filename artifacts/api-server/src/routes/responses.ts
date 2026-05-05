@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, sql } from "drizzle-orm";
-import { db, modelResponsesTable, questionsTable, modelsTable, datasetsTable } from "@workspace/db";
+import { db, modelResponsesTable, questionsTable, modelsTable, datasetsTable, referenceAnswersTable } from "@workspace/db";
 import {
   GenerateResponsesBody,
   GetResponseParams,
@@ -280,6 +280,20 @@ router.post("/responses/import", async (req: Request, res: Response): Promise<vo
   }
 
   res.json({ imported, skipped, errors, suggestedDataset });
+});
+
+router.delete("/results/clear-all", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+
+  const [{ deletedResponses }] = await db.delete(modelResponsesTable)
+    .returning({ id: modelResponsesTable.id })
+    .then((rows) => [{ deletedResponses: rows.length }]);
+
+  const [{ deletedRefs }] = await db.delete(referenceAnswersTable)
+    .returning({ id: referenceAnswersTable.id })
+    .then((rows) => [{ deletedRefs: rows.length }]);
+
+  res.json({ deletedResponses, deletedRefs });
 });
 
 router.delete("/responses/:id", async (req: Request, res: Response): Promise<void> => {

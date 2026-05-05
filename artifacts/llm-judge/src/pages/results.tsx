@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle } from "lucide-react";
+import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -83,6 +83,8 @@ export default function Results() {
   const [activeTab, setActiveTab] = useState<"open_ended" | "mcq">("open_ended");
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showClearAll, setShowClearAll] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -100,6 +102,22 @@ export default function Results() {
 
   const openEndedRows = results?.filter((r) => r.questionType === "OPEN_ENDED") ?? [];
   const mcqRows = results?.filter((r) => r.questionType === "MCQ") ?? [];
+
+  async function clearAllResults() {
+    setIsClearing(true);
+    try {
+      const res = await fetch("/api/results/clear-all", { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json()).error);
+      const data = await res.json();
+      toast({ title: "Cleared", description: `Deleted ${data.deletedResponses} responses and ${data.deletedRefs} reference answers.` });
+      queryClient.invalidateQueries();
+    } catch (e) {
+      toast({ title: "Clear failed", description: String(e), variant: "destructive" });
+    } finally {
+      setIsClearing(false);
+      setShowClearAll(false);
+    }
+  }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -187,16 +205,28 @@ export default function Results() {
             </TabsTrigger>
           </TabsList>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 shrink-0"
-            disabled={activeTab === "open_ended" ? openEndedRows.length === 0 : mcqRows.length === 0}
-            onClick={() => activeTab === "open_ended" ? exportOpenEndedCSV(openEndedRows) : exportMCQCSV(mcqRows)}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 shrink-0"
+              disabled={activeTab === "open_ended" ? openEndedRows.length === 0 : mcqRows.length === 0}
+              onClick={() => activeTab === "open_ended" ? exportOpenEndedCSV(openEndedRows) : exportMCQCSV(mcqRows)}
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+              disabled={!results || results.length === 0}
+              onClick={() => setShowClearAll(true)}
+            >
+              <Eraser className="h-3.5 w-3.5" />
+              Clear All
+            </Button>
+          </div>
         </div>
 
         {/* Open-ended tab */}
@@ -284,6 +314,32 @@ export default function Results() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Confirm: clear ALL results */}
+      <Dialog open={showClearAll} onOpenChange={(o) => !o && setShowClearAll(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>مسح جميع النتائج؟</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 pt-1">
+                <p>سيتم حذف ما يلي بشكل نهائي:</p>
+                <ul className="text-sm space-y-1 list-disc list-inside text-muted-foreground">
+                  <li>جميع ردود النماذج (Model Responses)</li>
+                  <li>جميع تقييمات القاضي (Judge Evaluations)</li>
+                  <li>جميع الإجابات المرجعية (Reference Answers)</li>
+                </ul>
+                <p className="text-sm font-medium text-foreground pt-1">تبقى: الأسئلة، الـ Datasets، والنماذج.</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClearAll(false)} disabled={isClearing}>إلغاء</Button>
+            <Button variant="destructive" onClick={clearAllResults} disabled={isClearing}>
+              {isClearing ? "جارٍ المسح…" : "مسح كل النتائج"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirm: clear evaluation */}
       <Dialog open={deleteTarget?.kind === "evaluation"} onOpenChange={(o) => !o && setDeleteTarget(null)}>
