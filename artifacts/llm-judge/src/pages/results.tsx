@@ -103,6 +103,16 @@ export default function Results() {
   const openEndedRows = results?.filter((r) => r.questionType === "OPEN_ENDED") ?? [];
   const mcqRows = results?.filter((r) => r.questionType === "MCQ") ?? [];
 
+  // Build sequential question-number maps (unique questionIds in appearance order)
+  const openEndedQNumMap = new Map<number, number>();
+  openEndedRows.forEach((r) => {
+    if (!openEndedQNumMap.has(r.questionId)) openEndedQNumMap.set(r.questionId, openEndedQNumMap.size + 1);
+  });
+  const mcqQNumMap = new Map<number, number>();
+  mcqRows.forEach((r) => {
+    if (!mcqQNumMap.has(r.questionId)) mcqQNumMap.set(r.questionId, mcqQNumMap.size + 1);
+  });
+
   async function clearAllResults() {
     setIsClearing(true);
     try {
@@ -241,6 +251,7 @@ export default function Results() {
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="w-10 pl-3"></TableHead>
+                        <TableHead className="w-10 text-center text-muted-foreground">#</TableHead>
                         <TableHead className="w-[14%]">Model</TableHead>
                         <TableHead className="w-[28%]">Question</TableHead>
                         <TableHead className="w-[28%]">Response</TableHead>
@@ -253,12 +264,13 @@ export default function Results() {
                         <OpenEndedRow
                           key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`}
                           row={row}
+                          questionNumber={openEndedQNumMap.get(row.questionId) ?? 0}
                           onClearEvaluation={(evaluationId) => setDeleteTarget({ kind: "evaluation", evaluationId })}
                         />
                       ))}
                       {openEndedRows.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-48 text-center text-sm text-muted-foreground">
+                          <TableCell colSpan={7} className="h-48 text-center text-sm text-muted-foreground">
                             No open-ended responses found. Import responses or adjust filters.
                           </TableCell>
                         </TableRow>
@@ -283,6 +295,7 @@ export default function Results() {
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
                         <TableHead className="w-10 pl-3"></TableHead>
+                        <TableHead className="w-10 text-center text-muted-foreground">#</TableHead>
                         <TableHead className="w-[14%]">Model</TableHead>
                         <TableHead className="w-[35%]">Question</TableHead>
                         <TableHead className="w-[10%] text-center">Prediction</TableHead>
@@ -295,11 +308,12 @@ export default function Results() {
                         <MCQRow
                           key={`${row.questionId}-${row.responseId || 0}`}
                           row={row}
+                          questionNumber={mcqQNumMap.get(row.questionId) ?? 0}
                         />
                       ))}
                       {mcqRows.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={6} className="h-48 text-center text-sm text-muted-foreground">
+                          <TableCell colSpan={7} className="h-48 text-center text-sm text-muted-foreground">
                             No MCQ responses found. Import responses or adjust filters.
                           </TableCell>
                         </TableRow>
@@ -382,9 +396,11 @@ export default function Results() {
 
 function OpenEndedRow({
   row,
+  questionNumber,
   onClearEvaluation,
 }: {
   row: any;
+  questionNumber: number;
   onClearEvaluation: (evaluationId: number) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -397,6 +413,11 @@ function OpenEndedRow({
       >
         <TableCell className="pl-3">
           <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-90 text-primary' : ''}`} />
+        </TableCell>
+        <TableCell className="align-top py-3 text-center">
+          <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            {questionNumber}
+          </span>
         </TableCell>
         <TableCell className="align-top py-3">
           <p className="font-medium text-sm">{row.modelName}</p>
@@ -438,7 +459,7 @@ function OpenEndedRow({
       <AnimatePresence>
         {isOpen && (
           <TableRow className="bg-slate-50 hover:bg-slate-50">
-            <TableCell colSpan={6} className="p-0">
+            <TableCell colSpan={7} className="p-0">
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
@@ -529,8 +550,10 @@ function OpenEndedRow({
 
 function MCQRow({
   row,
+  questionNumber,
 }: {
   row: any;
+  questionNumber: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const isCorrect = row.mcqScore != null
@@ -545,6 +568,11 @@ function MCQRow({
       >
         <TableCell className="pl-3">
           <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-90 text-blue-500' : ''}`} />
+        </TableCell>
+        <TableCell className="align-top py-3 text-center">
+          <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            {questionNumber}
+          </span>
         </TableCell>
         <TableCell className="align-top py-3">
           <p className="font-medium text-sm">{row.modelName}</p>
@@ -600,7 +628,7 @@ function MCQRow({
       <AnimatePresence>
         {isOpen && (
           <TableRow className="bg-blue-50/30 hover:bg-blue-50/30">
-            <TableCell colSpan={6} className="p-0">
+            <TableCell colSpan={7} className="p-0">
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
