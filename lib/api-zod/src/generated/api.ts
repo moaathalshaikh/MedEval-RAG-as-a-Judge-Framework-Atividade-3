@@ -131,6 +131,17 @@ export const GetDatasetResponse = zod.object({
 });
 
 /**
+ * @summary Rename a dataset
+ */
+export const RenameDatasetParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RenameDatasetBody = zod.object({
+  datasetName: zod.string().min(1),
+});
+
+/**
  * @summary Delete a dataset
  */
 export const DeleteDatasetParams = zod.object({

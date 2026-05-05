@@ -1,11 +1,11 @@
-import { useListDatasets, useCreateDataset, useDeleteDataset, getListDatasetsQueryKey, CreateDatasetBodyDomain, CreateDatasetBodyDatasetType } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useListDatasets, useCreateDataset, useDeleteDataset, getListDatasetsQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, ExternalLink, Lock } from "lucide-react";
+import { Trash2, Plus, ExternalLink, Lock, Pencil, Check, X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -14,10 +14,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { currentUnifiedUser } from "@/components/auth-gate";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { CreateDatasetBodyDomain, CreateDatasetBodyDatasetType } from "@workspace/api-client-react";
 
 const datasetSchema = z.object({
   datasetName: z.string().min(1, "Dataset name is required"),
@@ -27,6 +29,70 @@ const datasetSchema = z.object({
 
 type DatasetFormValues = z.infer<typeof datasetSchema>;
 
+function useRenameDataset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, datasetName }: { id: number; datasetName: string }) => {
+      const res = await fetch(`/api/datasets/${id}/rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ datasetName }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Failed to rename");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: getListDatasetsQueryKey() });
+    },
+  });
+}
+
+function InlineRename({ id, name, onDone }: { id: number; name: string; onDone: () => void }) {
+  const [value, setValue] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rename = useRenameDataset();
+  const { toast } = useToast();
+
+  useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
+
+  function handleSave() {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === name) { onDone(); return; }
+    rename.mutate({ id, datasetName: trimmed }, {
+      onSuccess: () => { toast({ title: "Dataset renamed" }); onDone(); },
+      onError: (err) => { toast({ title: "Rename failed", description: (err as Error).message, variant: "destructive" }); },
+    });
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") handleSave();
+    if (e.key === "Escape") onDone();
+  }
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        className="h-7 text-sm w-40 px-2"
+        disabled={rename.isPending}
+      />
+      <Button size="icon" variant="ghost" className="h-7 w-7 text-primary hover:bg-primary/10" onClick={handleSave} disabled={rename.isPending}>
+        <Check className="h-3.5 w-3.5" />
+      </Button>
+      <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:bg-muted" onClick={onDone} disabled={rename.isPending}>
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
 export default function Datasets() {
   const { data: datasets, isLoading } = useListDatasets();
   const createDataset = useCreateDataset();
@@ -34,6 +100,7 @@ export default function Datasets() {
   const queryClient = useQueryClient();
   const currentUserId = currentUnifiedUser?.id ?? null;
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; questionCount: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
 
   const form = useForm<DatasetFormValues>({
     resolver: zodResolver(datasetSchema),
@@ -157,59 +224,82 @@ export default function Datasets() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {datasets?.map((dataset, idx) => (
-                    <TableRow key={dataset.id} className="hover:bg-muted/40 group">
-                      <TableCell className="pl-4 text-muted-foreground text-xs">{idx + 1}</TableCell>
-                      <TableCell>
-                        <div className="font-medium">{dataset.datasetName}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <Badge variant="secondary" className="text-xs w-fit">{dataset.domain}</Badge>
-                          <Badge variant="outline" className={`text-xs w-fit ${dataset.datasetType === "MCQ" ? "border-blue-300 text-blue-700 bg-blue-50" : "border-green-300 text-green-700 bg-green-50"}`}>
-                            {dataset.datasetType === "MCQ" ? "MCQ" : "Open-ended"}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {dataset.createdByName ?? <span className="text-muted-foreground/40 italic">Unknown</span>}
-                      </TableCell>
-                      <TableCell className="text-right text-sm text-muted-foreground">{dataset.questionCount}</TableCell>
-                      <TableCell className="text-right pr-4">
-                        <TooltipProvider>
-                          <div className="flex items-center justify-end gap-1">
-                            <Link href={`/datasets/${dataset.id}`}>
-                              <Button variant="outline" size="sm" className="h-8 gap-1.5 text-primary border-primary/30 hover:bg-primary/5">
-                                <ExternalLink className="h-3.5 w-3.5" /> Open
-                              </Button>
-                            </Link>
-                            {currentUserId && dataset.createdById === currentUserId ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setDeleteTarget({ id: dataset.id, name: dataset.datasetName, questionCount: dataset.questionCount })}
-                                disabled={deleteDataset.isPending}
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            ) : (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground/40 cursor-not-allowed">
-                                    <Lock className="h-3.5 w-3.5" />
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="left">
-                                  <p>Only the owner can delete this dataset</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
+                  {datasets?.map((dataset, idx) => {
+                    const isOwner = currentUserId && dataset.createdById === currentUserId;
+                    const isRenaming = renamingId === dataset.id;
+                    return (
+                      <TableRow key={dataset.id} className="hover:bg-muted/40 group">
+                        <TableCell className="pl-4 text-muted-foreground text-xs">{idx + 1}</TableCell>
+                        <TableCell>
+                          {isRenaming ? (
+                            <InlineRename
+                              id={dataset.id}
+                              name={dataset.datasetName}
+                              onDone={() => setRenamingId(null)}
+                            />
+                          ) : (
+                            <div className="flex items-center gap-1.5 group/name">
+                              <span className="font-medium">{dataset.datasetName}</span>
+                              {isOwner && (
+                                <button
+                                  onClick={() => setRenamingId(dataset.id)}
+                                  className="opacity-0 group-hover/name:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-primary"
+                                  title="Rename dataset"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="secondary" className="text-xs w-fit">{dataset.domain}</Badge>
+                            <Badge variant="outline" className={`text-xs w-fit ${dataset.datasetType === "MCQ" ? "border-blue-300 text-blue-700 bg-blue-50" : "border-green-300 text-green-700 bg-green-50"}`}>
+                              {dataset.datasetType === "MCQ" ? "MCQ" : "Open-ended"}
+                            </Badge>
                           </div>
-                        </TooltipProvider>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {dataset.createdByName ?? <span className="text-muted-foreground/40 italic">Unknown</span>}
+                        </TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">{dataset.questionCount}</TableCell>
+                        <TableCell className="text-right pr-4">
+                          <TooltipProvider>
+                            <div className="flex items-center justify-end gap-1">
+                              <Link href={`/datasets/${dataset.id}`}>
+                                <Button variant="outline" size="sm" className="h-8 gap-1.5 text-primary border-primary/30 hover:bg-primary/5">
+                                  <ExternalLink className="h-3.5 w-3.5" /> Open
+                                </Button>
+                              </Link>
+                              {isOwner ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setDeleteTarget({ id: dataset.id, name: dataset.datasetName, questionCount: dataset.questionCount })}
+                                  disabled={deleteDataset.isPending}
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              ) : (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground/40 cursor-not-allowed">
+                                      <Lock className="h-3.5 w-3.5" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left">
+                                    <p>Only the owner can modify this dataset</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
+                          </TooltipProvider>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {(!datasets || datasets.length === 0) && (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-16 text-sm text-muted-foreground">

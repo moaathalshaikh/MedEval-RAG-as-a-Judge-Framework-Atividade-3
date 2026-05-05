@@ -7,6 +7,8 @@ import {
   GetDatasetParams,
   DeleteDatasetParams,
   UploadDatasetBody,
+  RenameDatasetParams,
+  RenameDatasetBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -143,6 +145,32 @@ router.get("/datasets/:id", async (req, res): Promise<void> => {
     createdById: row.createdBy ?? null,
     createdByName: displayName({ email: row.creatorEmail ?? null, firstName: row.creatorFirstName ?? null, lastName: row.creatorLastName ?? null }),
   });
+});
+
+router.patch("/datasets/:id/rename", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+  const uid = req.user!.id;
+
+  const params = RenameDatasetParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+
+  const body = RenameDatasetBody.safeParse(req.body);
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
+
+  const [existing] = await db.select().from(datasetsTable).where(eq(datasetsTable.id, params.data.id));
+  if (!existing) { res.status(404).json({ error: "Dataset not found" }); return; }
+  if (existing.createdBy && existing.createdBy !== uid) {
+    res.status(403).json({ error: "You can only rename your own datasets" });
+    return;
+  }
+
+  const [updated] = await db
+    .update(datasetsTable)
+    .set({ datasetName: body.data.datasetName.trim() })
+    .where(eq(datasetsTable.id, params.data.id))
+    .returning();
+
+  res.json({ id: updated.id, datasetName: updated.datasetName });
 });
 
 router.delete("/datasets/:id", async (req: Request, res: Response): Promise<void> => {
