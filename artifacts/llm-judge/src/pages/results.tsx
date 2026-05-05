@@ -253,7 +253,6 @@ export default function Results() {
                         <OpenEndedRow
                           key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`}
                           row={row}
-                          onDeleteResponse={(responseId) => setDeleteTarget({ kind: "response", responseId })}
                           onClearEvaluation={(evaluationId) => setDeleteTarget({ kind: "evaluation", evaluationId })}
                         />
                       ))}
@@ -296,7 +295,6 @@ export default function Results() {
                         <MCQRow
                           key={`${row.questionId}-${row.responseId || 0}`}
                           row={row}
-                          onDeleteResponse={(responseId) => setDeleteTarget({ kind: "response", responseId })}
                         />
                       ))}
                       {mcqRows.length === 0 && (
@@ -384,11 +382,9 @@ export default function Results() {
 
 function OpenEndedRow({
   row,
-  onDeleteResponse,
   onClearEvaluation,
 }: {
   row: any;
-  onDeleteResponse: (responseId: number) => void;
   onClearEvaluation: (evaluationId: number) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -504,31 +500,18 @@ function OpenEndedRow({
                       )}
                     </div>
 
-                    {(canDelete(row.responseCreatedBy) || canDelete(row.evaluationCreatedBy)) && (
+                    {row.evaluationId && canDelete(row.evaluationCreatedBy) && (
                       <div className="border-t border-border pt-4 space-y-2">
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</p>
-                        {row.evaluationId && canDelete(row.evaluationCreatedBy) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
-                            onClick={(e) => { e.stopPropagation(); onClearEvaluation(row.evaluationId); }}
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            Clear evaluation score
-                          </Button>
-                        )}
-                        {canDelete(row.responseCreatedBy) && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:border-red-300"
-                            onClick={(e) => { e.stopPropagation(); onDeleteResponse(row.responseId); }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Delete response
-                          </Button>
-                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
+                          onClick={(e) => { e.stopPropagation(); onClearEvaluation(row.evaluationId); }}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Clear evaluation score
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -546,10 +529,8 @@ function OpenEndedRow({
 
 function MCQRow({
   row,
-  onDeleteResponse,
 }: {
   row: any;
-  onDeleteResponse: (responseId: number) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const isCorrect = row.mcqScore != null
@@ -672,20 +653,6 @@ function MCQRow({
                       </div>
                     </div>
 
-                    {canDelete(row.responseCreatedBy) && row.responseId > 0 && (
-                      <div className="border-t border-border pt-4">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full gap-2 text-red-700 border-red-200 hover:bg-red-50 hover:border-red-300"
-                          onClick={(e) => { e.stopPropagation(); onDeleteResponse(row.responseId); }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Delete response
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 </div>
               </motion.div>
