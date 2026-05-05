@@ -424,6 +424,12 @@ export const GetResultsResponseItem = zod.object({
   reasoning: zod.string().nullish(),
   judgeModelName: zod.string().nullish(),
   evaluatedAt: zod.string().nullish(),
+  responseCreatedBy: zod.string().nullish(),
+  evaluationCreatedBy: zod.string().nullish(),
+  mustHaveScore: zod.number().nullish(),
+  mcqCorrect: zod.string().nullish(),
+  mcqScore: zod.string().nullish(),
+  referenceAnswer: zod.string().nullish(),
 });
 export const GetResultsResponse = zod.array(GetResultsResponseItem);
 

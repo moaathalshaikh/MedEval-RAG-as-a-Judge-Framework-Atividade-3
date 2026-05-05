@@ -7,6 +7,8 @@ import {
   questionsTable,
   modelResponsesTable,
   judgeEvaluationsTable,
+  referenceAnswersTable,
+  judgeModelsTable,
 } from "@workspace/db";
 import { GetResultsQueryParams } from "@workspace/api-zod";
 
@@ -97,9 +99,6 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
   if (datasetId != null) conditions.push(eq(questionsTable.datasetId, datasetId));
   if (modelId != null) conditions.push(eq(modelResponsesTable.modelId, modelId));
 
-  // Alias tables for judge model join
-  const judgeModels = modelsTable;
-
   const rows = await db
     .select({
       questionId: questionsTable.id,
@@ -112,6 +111,9 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
       responseText: modelResponsesTable.responseText,
       inferenceTimeMs: modelResponsesTable.inferenceTimeMs,
       responseCreatedBy: modelResponsesTable.createdBy,
+      mustHaveScore: modelResponsesTable.mustHaveScore,
+      mcqCorrect: modelResponsesTable.mcqCorrect,
+      mcqScore: modelResponsesTable.mcqScore,
       evaluationId: judgeEvaluationsTable.id,
       score: judgeEvaluationsTable.score,
       reasoning: judgeEvaluationsTable.reasoning,
@@ -127,35 +129,54 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(questionsTable.id);
 
-  // Fetch judge model names
-  const allModels = await db.select().from(judgeModels);
-  const modelMap = new Map(allModels.map((m) => [m.id, m.modelName]));
+  // Fetch all judge model display names
+  const allJudgeModels = await db.select().from(judgeModelsTable);
+  const judgeMap = new Map(allJudgeModels.map((m) => [m.id, m.displayName]));
 
-  res.json(rows.map((r) => ({
-    questionId: r.questionId,
-    questionText: r.questionText,
-    goldAnswer: r.goldAnswer,
-    questionType: r.questionType,
-    datasetName: r.datasetName ?? "",
-    responseId: r.responseId ?? 0,
-    modelName: r.modelName ?? "",
-    responseText: r.responseText ?? "",
-    inferenceTimeMs: r.inferenceTimeMs ?? null,
-    responseCreatedBy: r.responseCreatedBy ?? null,
-    evaluationId: r.evaluationId ?? null,
-    score: r.score ?? null,
-    reasoning: r.reasoning ?? null,
-    judgeModelName: r.judgeModelId ? (modelMap.get(r.judgeModelId) ?? null) : null,
-    evaluatedAt: r.evaluatedAt?.toISOString() ?? null,
-    evaluationCreatedBy: r.evaluationCreatedBy ?? null,
-  })));
+  // Fetch reference answers for questions that have responses
+  const questionIds = [...new Set(rows.filter((r) => r.questionId).map((r) => r.questionId))];
+  let refMap = new Map<string, string>(); // key: `${questionId}_${judgeModelId}`
+  if (questionIds.length > 0) {
+    const refs = await db
+      .select({
+        questionId: referenceAnswersTable.questionId,
+        judgeModelId: referenceAnswersTable.judgeModelId,
+        answerText: referenceAnswersTable.answerText,
+      })
+      .from(referenceAnswersTable);
+    for (const ref of refs) {
+      refMap.set(`${ref.questionId}_${ref.judgeModelId}`, ref.answerText);
+    }
+  }
+
+  res.json(rows.map((r) => {
+    const refKey = r.judgeModelId ? `${r.questionId}_${r.judgeModelId}` : null;
+    return {
+      questionId: r.questionId,
+      questionText: r.questionText,
+      goldAnswer: r.goldAnswer,
+      questionType: r.questionType,
+      datasetName: r.datasetName ?? "",
+      responseId: r.responseId ?? 0,
+      modelName: r.modelName ?? "",
+      responseText: r.responseText ?? "",
+      inferenceTimeMs: r.inferenceTimeMs ?? null,
+      responseCreatedBy: r.responseCreatedBy ?? null,
+      mustHaveScore: r.mustHaveScore ?? null,
+      mcqCorrect: r.mcqCorrect ?? null,
+      mcqScore: r.mcqScore ?? null,
+      evaluationId: r.evaluationId ?? null,
+      score: r.score ?? null,
+      reasoning: r.reasoning ?? null,
+      judgeModelName: r.judgeModelId ? (judgeMap.get(r.judgeModelId) ?? null) : null,
+      evaluatedAt: r.evaluatedAt?.toISOString() ?? null,
+      evaluationCreatedBy: r.evaluationCreatedBy ?? null,
+      referenceAnswer: refKey ? (refMap.get(refKey) ?? null) : null,
+    };
+  }));
 });
 
 router.get("/analytics/spearman", async (_req, res): Promise<void> => {
-  // Compute Spearman correlation between judge scores and MCQ accuracy (binary)
-  // For MCQ: correctness = 1 if score=5, 0 if score=1
-  // We correlate judge scores with this gold-standard signal
-
   const rows = await db
     .select({
       score: judgeEvaluationsTable.score,
@@ -180,14 +201,11 @@ router.get("/analytics/spearman", async (_req, res): Promise<void> => {
     return;
   }
 
-  // MCQ accuracy: proportion where score = 5 among MCQ questions
   const mcqRows = rows.filter((r) => r.questionType === "MCQ");
   const mcqAccuracy = mcqRows.length > 0
     ? mcqRows.filter((r) => r.score === 5).length / mcqRows.length
     : null;
 
-  // Compute Spearman rank correlation between scores and binary correctness
-  // Binary gold = 1 if (MCQ && score==5) or (OPEN_ENDED && score >= 4), else 0
   const paired: Array<[number, number]> = rows.map((r) => {
     const gold = r.questionType === "MCQ"
       ? (r.score === 5 ? 1 : 0)
@@ -230,9 +248,7 @@ router.get("/analytics/spearman", async (_req, res): Promise<void> => {
   const denom = Math.sqrt(denS * denG);
   const correlation = denom === 0 ? 0 : num / denom;
 
-  // Approximate p-value using t-distribution
   const t = correlation * Math.sqrt((n - 2) / (1 - correlation * correlation));
-  // Simple approximation using normal distribution
   const pValue = n < 3 ? null : Math.min(1, 2 * Math.exp(-0.717 * Math.abs(t) - 0.416 * t * t));
 
   const interpretation =

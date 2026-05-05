@@ -19,6 +19,9 @@ interface ImportEntry {
   modelId: number;
   responseText: string;
   inferenceTimeMs?: number | null;
+  mustHaveScore?: number | null;
+  mcqCorrect?: string | null;
+  mcqScore?: string | null;
 }
 
 interface ParsedResult {
@@ -87,6 +90,8 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
     );
   }
 
+  const mhsIdx = header.findIndex((h) => h === "must_have_score" || h.includes("must_have"));
+
   const entries: ImportEntry[] = [];
   for (let i = 1; i < rows.length; i++) {
     const cols = rows[i];
@@ -94,8 +99,9 @@ function parseOpenEndedCSV(text: string, modelId: number): ParsedResult {
     const questionText = qIdx   >= 0 ? cols[qIdx]?.trim()   : undefined;
     const responseText = cols[ansIdx]?.trim() ?? "";
     const inferenceTimeMs = timeIdx >= 0 ? (parseFloat(cols[timeIdx]) || null) : null;
+    const mustHaveScore = mhsIdx >= 0 ? (parseFloat(cols[mhsIdx]) || null) : null;
     if (!responseText) continue;
-    entries.push({ externalId, questionText, modelId, responseText, inferenceTimeMs });
+    entries.push({ externalId, questionText, modelId, responseText, inferenceTimeMs, mustHaveScore });
   }
 
   if (entries.length === 0)
@@ -140,13 +146,18 @@ function parseMCQCSV(text: string, modelId: number): ParsedResult {
     );
   }
 
+  const correctIdx = header.findIndex((h) => h === "correct");
+  const scoreIdx   = header.findIndex((h) => h === "score");
+
   const entries: ImportEntry[] = [];
   for (let i = 1; i < rows.length; i++) {
     const cols = rows[i];
     const questionText = cols[qIdx]?.trim();
     const prediction   = cols[predIdx]?.trim().toUpperCase();
     if (!questionText || !prediction) continue;
-    entries.push({ questionText, modelId, responseText: prediction });
+    const mcqCorrect = correctIdx >= 0 ? (cols[correctIdx]?.trim().toUpperCase() || null) : null;
+    const mcqScore   = scoreIdx   >= 0 ? (cols[scoreIdx]?.trim() || null) : null;
+    entries.push({ questionText, modelId, responseText: prediction, mcqCorrect, mcqScore });
   }
 
   if (entries.length === 0)

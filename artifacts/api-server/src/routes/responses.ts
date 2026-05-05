@@ -149,6 +149,9 @@ router.post("/responses/import", async (req: Request, res: Response): Promise<vo
     modelId: number;
     responseText: string;
     inferenceTimeMs?: number | null;
+    mustHaveScore?: number | null;
+    mcqCorrect?: string | null;
+    mcqScore?: string | null;
   };
 
   const responses = body.responses as ImportEntry[];
@@ -219,6 +222,9 @@ router.post("/responses/import", async (req: Request, res: Response): Promise<vo
           responseText: r.responseText,
           inferenceTimeMs: r.inferenceTimeMs ?? null,
           createdBy: uid,
+          mustHaveScore: r.mustHaveScore ?? null,
+          mcqCorrect: r.mcqCorrect ?? null,
+          mcqScore: r.mcqScore ?? null,
         })
         .onConflictDoNothing()
         .returning();
