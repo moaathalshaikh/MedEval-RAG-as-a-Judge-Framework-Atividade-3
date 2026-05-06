@@ -1,7 +1,15 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, referenceAnswersTable, questionsTable, judgeModelsTable, judgeEvaluationsTable, settingsTable, datasetsTable } from "@workspace/db";
-import { callLLM, buildReferenceAnswerPrompt, type LLMProvider } from "../lib/llm";
+import type { MCQRefSections, OpenRefSections } from "@workspace/db";
+import {
+  callLLM,
+  assembleMCQRefPrompt,
+  assembleOpenRefPrompt,
+  buildReferenceAnswerPrompt,
+  type LLMProvider,
+} from "../lib/llm";
+import { resolvePromptSections } from "./prompts";
 import { logger } from "../lib/logger";
 import { logActivity } from "../lib/activity";
 
@@ -60,7 +68,6 @@ router.get("/reference-answers/status", async (req: Request, res: Response): Pro
     judgeModelId = parseInt(judgeModelIdStr);
   }
 
-  // Count all question types — MCQ gets a single-letter judge answer, open-ended gets a full reference
   const questions = await db.select({ id: questionsTable.id })
     .from(questionsTable)
     .where(eq(questionsTable.datasetId, datasetId));
@@ -84,19 +91,43 @@ router.get("/reference-answers/status", async (req: Request, res: Response): Pro
 });
 
 // POST /reference-answers/generate
-// Body: { datasetId: number, judgeModelId?: number, questionIds?: number[] }
+// Body: { datasetId, judgeModelId?, questionIds?, mcqPromptId?, openPromptId? }
 router.post("/reference-answers/generate", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
   const uid = req.user!.id;
 
   try {
-    const { datasetId, judgeModelId: bodyJudgeModelId, questionIds: specificIds } = req.body as {
+    const {
+      datasetId,
+      judgeModelId: bodyJudgeModelId,
+      questionIds: specificIds,
+      mcqPromptId,
+      openPromptId,
+    } = req.body as {
       datasetId?: number;
       judgeModelId?: number;
       questionIds?: number[];
+      mcqPromptId?: string;
+      openPromptId?: string;
     };
 
     if (!datasetId) { res.status(400).json({ error: "datasetId required" }); return; }
+
+    // Validate prompt IDs (if not system defaults, must exist in DB and belong to user)
+    if (mcqPromptId && !mcqPromptId.startsWith("system_")) {
+      const sections = await resolvePromptSections(mcqPromptId, "MCQ_REFERENCE");
+      if (!sections) {
+        res.status(400).json({ error: "MCQ prompt not found or wrong type" });
+        return;
+      }
+    }
+    if (openPromptId && !openPromptId.startsWith("system_")) {
+      const sections = await resolvePromptSections(openPromptId, "OPEN_REFERENCE");
+      if (!sections) {
+        res.status(400).json({ error: "Open-ended prompt not found or wrong type" });
+        return;
+      }
+    }
 
     // Resolve judge model and version
     let judgeModelId: number;
@@ -104,7 +135,6 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
 
     if (bodyJudgeModelId) {
       judgeModelId = bodyJudgeModelId;
-      // First try per-model version key, then global fallback
       modelVersion = await getUserSetting(uid, `judge_model_version_${judgeModelId}`);
       if (!modelVersion) {
         modelVersion = await getUserSetting(uid, "judge_model_version");
@@ -140,7 +170,11 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
       return;
     }
 
-    // Fetch all question types — MCQ uses a single-letter prompt, open-ended uses full reference
+    // Resolve prompt sections once (reused for all questions of that type)
+    const mcqSections = (await resolvePromptSections(mcqPromptId ?? null, "MCQ_REFERENCE")) as MCQRefSections | null;
+    const openSections = (await resolvePromptSections(openPromptId ?? null, "OPEN_REFERENCE")) as OpenRefSections | null;
+
+    // Fetch questions
     let questions: typeof questionsTable.$inferSelect[] = [];
     if (specificIds && specificIds.length > 0) {
       questions = await db.select().from(questionsTable)
@@ -159,14 +193,23 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
     let skipped = 0;
     const errors: string[] = [];
 
-    // Process in parallel with concurrency limit of 4 to avoid timeouts and rate limits
     const tasks = questions.map((q) => async () => {
       try {
-        const prompt = buildReferenceAnswerPrompt(
-          q.questionText,
-          q.questionType,
-          (q.metadata as Record<string, unknown>) ?? {}
-        );
+        const meta = (q.metadata as Record<string, unknown>) ?? {};
+        let prompt: string;
+        let usedPromptId: string;
+
+        if (q.questionType === "MCQ") {
+          prompt = mcqSections
+            ? assembleMCQRefPrompt(mcqSections, q.questionText, meta)
+            : buildReferenceAnswerPrompt(q.questionText, q.questionType, meta);
+          usedPromptId = mcqPromptId ?? "system_mcq_reference";
+        } else {
+          prompt = openSections
+            ? assembleOpenRefPrompt(openSections, q.questionText)
+            : buildReferenceAnswerPrompt(q.questionText, q.questionType, meta);
+          usedPromptId = openPromptId ?? "system_open_reference";
+        }
 
         const { text, confirmedModel } = await callLLM(
           judgeModel.provider as LLMProvider,
@@ -184,6 +227,7 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
             modelVersion: modelVersion!,
             confirmedModel: confirmedModel ?? modelVersion!,
             createdBy: uid,
+            promptId: usedPromptId,
           })
           .onConflictDoUpdate({
             target: [referenceAnswersTable.questionId, referenceAnswersTable.judgeModelId],
@@ -193,6 +237,7 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
               confirmedModel: sql`excluded.confirmed_model`,
               generatedAt:    sql`NOW()`,
               createdBy:      sql`excluded.created_by`,
+              promptId:       sql`excluded.prompt_id`,
             },
           });
 
@@ -207,7 +252,6 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
 
     await pLimit(tasks, 4);
 
-    // Fetch dataset name for logging
     const [dataset] = await db.select({ datasetName: datasetsTable.datasetName })
       .from(datasetsTable).where(eq(datasetsTable.id, datasetId));
 

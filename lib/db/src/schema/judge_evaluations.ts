@@ -15,6 +15,7 @@ export const judgeEvaluationsTable = pgTable("judge_evaluations", {
   judgeModelVersion: text("judge_model_version"),
   confirmedModel: text("confirmed_model"),
   createdBy: text("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+  promptId: text("prompt_id"),
 });
 
 export const insertJudgeEvaluationSchema = createInsertSchema(judgeEvaluationsTable).omit({ id: true, evaluatedAt: true });

@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { AlertCircle, CheckCircle2, SkipForward, Sparkles, Settings, ArrowRight } from "lucide-react";
+import { AlertCircle, CheckCircle2, SkipForward, Sparkles, Settings, ArrowRight, FileText } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,14 @@ interface GenerateRefResult {
   generated: number;
   skipped: number;
   errors: string[];
+}
+
+interface PromptItem {
+  id: string;
+  name: string;
+  type: string;
+  isSystem: boolean;
+  ownerName: string;
 }
 
 const PROVIDER_META: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
@@ -65,8 +73,22 @@ function useRefStatus(datasetId: string | null, judgeModelId: string) {
   });
 }
 
+function usePrompts(type: string) {
+  return useQuery<PromptItem[]>({
+    queryKey: ["prompts", type],
+    queryFn: () =>
+      fetch(`/api/prompts?type=${type}`, { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+}
+
 function useGenerateRefAnswers() {
-  return useMutation<GenerateRefResult, { error?: string }, { datasetId: number; judgeModelId: number }>({
+  return useMutation<GenerateRefResult, { error?: string }, {
+    datasetId: number;
+    judgeModelId: number;
+    mcqPromptId?: string;
+    openPromptId?: string;
+  }>({
     mutationFn: (body) =>
       fetch("/api/reference-answers/generate", {
         method: "POST",
@@ -88,6 +110,9 @@ export default function ReferenceAnswers() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const { data: mcqPrompts } = usePrompts("MCQ_REFERENCE");
+  const { data: openPrompts } = usePrompts("OPEN_REFERENCE");
+
   const { data: selectedDatasetData } = useQuery<string>({
     queryKey: ["ui", "selectedDatasetId"],
     queryFn: () => "",
@@ -98,12 +123,32 @@ export default function ReferenceAnswers() {
     queryClient.setQueryData(["ui", "selectedDatasetId"], id);
   }
 
+  // Prompt selections — default to system prompts
+  const { data: selectedMcqPromptId, } = useQuery<string>({
+    queryKey: ["ui", "refMcqPromptId"],
+    queryFn: () => "system_mcq_reference",
+    staleTime: Infinity,
+  });
+  const { data: selectedOpenPromptId } = useQuery<string>({
+    queryKey: ["ui", "refOpenPromptId"],
+    queryFn: () => "system_open_reference",
+    staleTime: Infinity,
+  });
+  const mcqPromptId = selectedMcqPromptId ?? "system_mcq_reference";
+  const openPromptId = selectedOpenPromptId ?? "system_open_reference";
+
+  function setMcqPromptId(id: string) {
+    queryClient.setQueryData(["ui", "refMcqPromptId"], id);
+  }
+  function setOpenPromptId(id: string) {
+    queryClient.setQueryData(["ui", "refOpenPromptId"], id);
+  }
+
   const { data: refStatus, refetch: refetchStatus } = useRefStatus(
     selectedDatasetId || null,
     selectedJudgeId
   );
 
-  // Animated local progress counter while generating
   const [localProgress, setLocalProgress] = React.useState(0);
   const totalQuestions = refStatus?.total ?? 0;
 
@@ -113,7 +158,6 @@ export default function ReferenceAnswers() {
       return;
     }
     setLocalProgress(0);
-    // concurrency = 4, ~3 s per question → estimated total time
     const estimatedMs = Math.max(6000, (totalQuestions / 4) * 3000);
     const tickMs = 250;
     const increment = (tickMs / estimatedMs) * totalQuestions;
@@ -143,7 +187,12 @@ export default function ReferenceAnswers() {
     if (!isReady || !selectedJudge) return;
     queryClient.setQueryData(["ui", "refGenResult"], null);
     generateRef.mutate(
-      { datasetId: parseInt(selectedDatasetId), judgeModelId: selectedJudge.id },
+      {
+        datasetId: parseInt(selectedDatasetId),
+        judgeModelId: selectedJudge.id,
+        mcqPromptId,
+        openPromptId,
+      },
       {
         onSuccess: (res) => {
           queryClient.setQueryData(["ui", "refGenResult"], res);
@@ -161,6 +210,10 @@ export default function ReferenceAnswers() {
     );
   }
 
+  function promptLabel(p: PromptItem) {
+    return p.isSystem ? `System Default` : `${p.name} (${p.ownerName})`;
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className="space-y-6">
       <div>
@@ -176,7 +229,7 @@ export default function ReferenceAnswers() {
       <div className="grid gap-6 md:grid-cols-12">
         <div className="md:col-span-8 space-y-4">
 
-          {/* Judge model dropdown — same pattern as Evaluate page */}
+          {/* Judge model dropdown */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -227,7 +280,6 @@ export default function ReferenceAnswers() {
                     </Select>
                   </div>
 
-                  {/* Selected judge preview */}
                   {selectedJudge && judgeMeta && (
                     <motion.div
                       key={selectedJudgeId}
@@ -250,6 +302,66 @@ export default function ReferenceAnswers() {
                   )}
                 </>
               )}
+            </CardContent>
+          </Card>
+
+          {/* Prompt selection */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  Reference Answer Prompts
+                </CardTitle>
+                <Link href="/settings?tab=prompts">
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                    <Settings className="h-3.5 w-3.5" />
+                    Manage Prompts
+                  </Button>
+                </Link>
+              </div>
+              <p className="text-xs text-muted-foreground">Choose which prompt template to use for each question type. Create custom prompts in Settings → Prompts.</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* MCQ Prompt */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">MCQ Questions Prompt</Label>
+                <Select value={mcqPromptId} onValueChange={setMcqPromptId}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(mcqPrompts ?? []).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <div className="flex items-center gap-2">
+                          {p.isSystem && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">System</span>}
+                          <span>{promptLabel(p)}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Open-ended Prompt */}
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Open-ended Questions Prompt</Label>
+                <Select value={openPromptId} onValueChange={setOpenPromptId}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(openPrompts ?? []).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <div className="flex items-center gap-2">
+                          {p.isSystem && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">System</span>}
+                          <span>{promptLabel(p)}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardContent>
           </Card>
 
@@ -287,11 +399,10 @@ export default function ReferenceAnswers() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">Generate Answers</CardTitle>
               <p className="text-xs text-muted-foreground">
-                The judge model will answer each question. Results are saved and reused automatically.
+                The judge model will answer each question using the selected prompts. Results are saved and reused automatically.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Status bar — shows animated progress while generating, coverage otherwise */}
               {selectedDatasetId && selectedJudgeId && refStatus && refStatus.total > 0 && (
                 generateRef.isPending ? (
                   <div className="space-y-1.5">
@@ -356,7 +467,6 @@ export default function ReferenceAnswers() {
                 </p>
               )}
 
-              {/* Result summary */}
               {resultData && (
                 <div className="space-y-3 pt-1">
                   <div className="flex gap-3">
@@ -419,8 +529,12 @@ export default function ReferenceAnswers() {
                   <span>The judge writes a comprehensive clinical answer that serves as the ideal response.</span>
                 </div>
                 <div className="flex gap-2">
+                  <span className="font-bold shrink-0 text-blue-600">Prompts</span>
+                  <span>Use custom prompts to experiment with different personas or instructions. Create them in Settings → Prompts.</span>
+                </div>
+                <div className="flex gap-2">
                   <span className="font-bold shrink-0 text-blue-600">Cached</span>
-                  <span>Answers are stored per dataset + judge model. You only need to generate them once unless the model changes.</span>
+                  <span>Answers are stored per dataset + judge model. Re-generating overwrites the previous answers.</span>
                 </div>
               </div>
             </CardContent>

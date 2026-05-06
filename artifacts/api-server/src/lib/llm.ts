@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import type { MCQRefSections, OpenRefSections, EvalSections } from "@workspace/db";
 
 export type LLMProvider = "OpenAI" | "Gemini" | "Claude" | "DeepSeek";
 
@@ -96,7 +97,91 @@ Score 4 — Very good answer, following clinical guidelines (AHA/ACC) and demons
 Score 5 — Perfect answer, identical to or superior to the Gold Standard in clinical accuracy, pharmacological precision, and clarity.
 `.trim();
 
-// ── Reference answer prompt ───────────────────────────────────────────────────
+// ── Default section values ────────────────────────────────────────────────────
+
+export const PROMPT_DEFAULTS = {
+  MCQ_PERSONA: "You are a medical expert.",
+  OPEN_PERSONA: "You are a senior cardiologist with specialization in international clinical guidelines (AHA/ACC/SBC). Provide a comprehensive, accurate, and detailed answer to the following medical question.",
+  EVAL_PERSONA: "You are a senior cardiologist with specialization in international clinical guidelines (AHA/ACC/SBC). Your task is to evaluate the clinical response proposed by a small AI model.",
+  RIGOR: "Be rigorous. If there is a medication error, wrong dosage, or incorrect differential diagnosis, the score must be 1 or 2, regardless of the quality of writing.",
+  GUIDANCE: "Give a thorough answer covering all important clinical aspects: diagnosis, treatment, dosage, safety, and long-term management. Be precise and clinically accurate.",
+  EVAL_STEPS: "Evaluate the small model's response step by step:\n1. Identify any critical safety errors (wrong drug, wrong dose, dangerous omission).\n2. Compare coverage of key clinical points against the reference answer.\n3. Assess alignment with clinical guidelines.\n4. Assign the final score using the rubric above.",
+};
+
+// ── Prompt assembly functions (used with custom or system sections) ───────────
+
+export function assembleMCQRefPrompt(
+  sections: MCQRefSections,
+  question: string,
+  metadata: Record<string, unknown>
+): string {
+  const choicesObj = metadata.choices as Record<string, string> | string[] | undefined;
+  let choicesStr = "";
+  if (choicesObj) {
+    if (Array.isArray(choicesObj)) {
+      choicesStr = `\nOptions:\n${choicesObj.map((c, i) => `${String.fromCharCode(65 + i)}) ${c}`).join("\n")}`;
+    } else {
+      choicesStr = `\nOptions:\n${Object.entries(choicesObj).map(([k, v]) => `${k}) ${v}`).join("\n")}`;
+    }
+  }
+  return `${sections.persona} Answer the following multiple-choice question by stating the correct option letter only (A, B, C, or D).
+
+Question: ${question}${choicesStr}
+
+Reply with only the correct option letter (e.g. "A" or "B"). No explanation needed.`;
+}
+
+export function assembleOpenRefPrompt(
+  sections: OpenRefSections,
+  question: string
+): string {
+  const guidance = sections.guidance ?? PROMPT_DEFAULTS.GUIDANCE;
+  return `${sections.persona}
+
+Question: ${question}
+
+${guidance}`;
+}
+
+export function assembleEvalPrompt(
+  sections: EvalSections,
+  question: string,
+  goldAnswer: string,
+  modelResponse: string,
+  metadata: Record<string, unknown>,
+  referenceAnswer?: string
+): string {
+  const rigor = sections.rigor ?? PROMPT_DEFAULTS.RIGOR;
+  const rubric = sections.rubric ?? JUDGE_RUBRIC;
+  const evalSteps = sections.evalSteps ?? PROMPT_DEFAULTS.EVAL_STEPS;
+
+  const referenceLabel = referenceAnswer ? "LLM Reference Answer (Gold Standard)" : "Gold Answer (ideal response)";
+  const referenceText = referenceAnswer ?? goldAnswer;
+
+  const mustHave = metadata.must_have ? `\nRequired elements (must_have): ${JSON.stringify(metadata.must_have)}` : "";
+  const niceToHave = metadata.nice_to_have ? `\nBonus elements (nice_to_have): ${JSON.stringify(metadata.nice_to_have)}` : "";
+
+  return `[PERSONA]
+${sections.persona}
+
+${rigor}
+
+[RUBRIC]
+${rubric}
+
+[CONTEXT]
+Clinical Question: ${question}
+${referenceLabel}: ${referenceText}${mustHave}${niceToHave}
+Small Model Response: ${modelResponse}
+
+[INSTRUCTIONS]
+${evalSteps}
+
+Respond in exactly this JSON format (no other text):
+{"score": <integer 1-5>, "reasoning": "<detailed Chain-of-Thought explanation>"}`;
+}
+
+// ── Legacy builders (backward compat — use system defaults) ───────────────────
 
 export function buildReferenceAnswerPrompt(
   question: string,
@@ -104,31 +189,10 @@ export function buildReferenceAnswerPrompt(
   metadata: Record<string, unknown>
 ): string {
   if (questionType === "MCQ") {
-    const choicesObj = metadata.choices as Record<string, string> | string[] | undefined;
-    let choicesStr = "";
-    if (choicesObj) {
-      if (Array.isArray(choicesObj)) {
-        choicesStr = `\nOptions:\n${choicesObj.map((c, i) => `${String.fromCharCode(65 + i)}) ${c}`).join("\n")}`;
-      } else {
-        choicesStr = `\nOptions:\n${Object.entries(choicesObj).map(([k, v]) => `${k}) ${v}`).join("\n")}`;
-      }
-    }
-    const choices = choicesStr;
-    return `You are a medical expert. Answer the following multiple-choice question by stating the correct option letter only (A, B, C, or D).
-
-Question: ${question}${choices}
-
-Reply with only the correct option letter (e.g. "A" or "B"). No explanation needed.`;
+    return assembleMCQRefPrompt({ persona: PROMPT_DEFAULTS.MCQ_PERSONA }, question, metadata);
   }
-
-  return `You are a senior cardiologist with specialization in international clinical guidelines (AHA/ACC/SBC). Provide a comprehensive, accurate, and detailed answer to the following medical question.
-
-Question: ${question}
-
-Give a thorough answer covering all important clinical aspects: diagnosis, treatment, dosage, safety, and long-term management. Be precise and clinically accurate.`;
+  return assembleOpenRefPrompt({ persona: PROMPT_DEFAULTS.OPEN_PERSONA, guidance: null }, question);
 }
-
-// ── Judge prompt (open-ended only — MCQ is auto-graded) ──────────────────────
 
 export function buildJudgePrompt(
   question: string,
@@ -137,34 +201,14 @@ export function buildJudgePrompt(
   metadata: Record<string, unknown>,
   referenceAnswer?: string
 ): string {
-  const referenceLabel = referenceAnswer ? "LLM Reference Answer (Gold Standard)" : "Gold Answer (ideal response)";
-  const referenceText = referenceAnswer ?? goldAnswer;
-
-  const mustHave = metadata.must_have ? `\nRequired elements (must_have): ${JSON.stringify(metadata.must_have)}` : "";
-  const niceToHave = metadata.nice_to_have ? `\nBonus elements (nice_to_have): ${JSON.stringify(metadata.nice_to_have)}` : "";
-
-  return `[PERSONA]
-You are a senior cardiologist with specialization in international clinical guidelines (AHA/ACC/SBC). Your task is to evaluate the clinical response proposed by a small AI model.
-
-Be rigorous. If there is a medication error, wrong dosage, or incorrect differential diagnosis, the score must be 1 or 2, regardless of the quality of writing.
-
-[RUBRIC]
-${JUDGE_RUBRIC}
-
-[CONTEXT]
-Clinical Question: ${question}
-${referenceLabel}: ${referenceText}${mustHave}${niceToHave}
-Small Model Response: ${modelResponse}
-
-[INSTRUCTIONS]
-Evaluate the small model's response step by step:
-1. Identify any critical safety errors (wrong drug, wrong dose, dangerous omission).
-2. Compare coverage of key clinical points against the reference answer.
-3. Assess alignment with clinical guidelines.
-4. Assign the final score using the rubric above.
-
-Respond in exactly this JSON format (no other text):
-{"score": <integer 1-5>, "reasoning": "<detailed Chain-of-Thought explanation>"}`;
+  return assembleEvalPrompt(
+    { persona: PROMPT_DEFAULTS.EVAL_PERSONA, rigor: null, rubric: null, evalSteps: null },
+    question,
+    goldAnswer,
+    modelResponse,
+    metadata,
+    referenceAnswer
+  );
 }
 
 // ── MCQ deterministic auto-grading (no LLM needed) ───────────────────────────
@@ -172,7 +216,6 @@ Respond in exactly this JSON format (no other text):
 export function extractMCQChoice(text: string): string | null {
   const upper = text.toUpperCase().trim();
 
-  // Try last character first (common for models that output just a letter)
   if (/^[A-F]$/.test(upper)) return upper;
 
   const patterns: Array<[string, RegExp]> = [

@@ -12,6 +12,7 @@ export const referenceAnswersTable = pgTable("reference_answers", {
   confirmedModel: text("confirmed_model"),
   generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: text("created_by").references(() => usersTable.id, { onDelete: "set null" }),
+  promptId: text("prompt_id"),
 }, (t) => [unique("uq_ref_answer").on(t.questionId, t.judgeModelId)]);
 
 export type ReferenceAnswerRow = typeof referenceAnswersTable.$inferSelect;

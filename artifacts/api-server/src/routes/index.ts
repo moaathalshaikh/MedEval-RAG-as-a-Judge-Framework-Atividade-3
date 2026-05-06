@@ -10,6 +10,7 @@ import analyticsRouter from "./analytics";
 import settingsRouter from "./settings";
 import referenceAnswersRouter from "./reference-answers";
 import activityLogRouter from "./activity-log";
+import promptsRouter from "./prompts";
 
 const router: IRouter = Router();
 
@@ -38,5 +39,6 @@ router.use(analyticsRouter);
 router.use(settingsRouter);
 router.use(referenceAnswersRouter);
 router.use(activityLogRouter);
+router.use(promptsRouter);
 
 export default router;
