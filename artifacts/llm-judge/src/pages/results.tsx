@@ -3,14 +3,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ScoreBadge } from "@/components/score-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser } from "lucide-react";
+import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -63,13 +63,11 @@ function groupRowsByQuestion(rows: any[]): QuestionGroup[] {
       });
     }
     const group = map.get(row.questionId)!;
-    // Keep the longest referenceAnswers array
     if ((row.referenceAnswers?.length ?? 0) > (group.referenceAnswers?.length ?? 0)) {
       group.referenceAnswers = row.referenceAnswers ?? [];
     }
     if (row.mcqCorrect && !group.mcqCorrect) group.mcqCorrect = row.mcqCorrect;
     if (row.responseId) {
-      // Avoid duplicate responseId
       if (!group.modelResponses.find(mr => mr.responseId === row.responseId)) {
         group.modelResponses.push({
           responseId: row.responseId,
@@ -134,6 +132,232 @@ type DeleteTarget = { kind: "response"; responseId: number } | { kind: "evaluati
 function canDelete(createdBy: string | null | undefined): boolean {
   if (createdBy === null || createdBy === undefined) return true;
   return currentUnifiedUser?.id === createdBy;
+}
+
+const SCORE_META: Record<number, { label: string; bg: string; text: string; bar: string }> = {
+  5: { label: "Excellent", bg: "bg-green-50",  text: "text-green-700",  bar: "bg-green-500"  },
+  4: { label: "Good",      bg: "bg-blue-50",   text: "text-blue-700",   bar: "bg-blue-500"   },
+  3: { label: "Partial",   bg: "bg-amber-50",  text: "text-amber-700",  bar: "bg-amber-500"  },
+  2: { label: "Weak",      bg: "bg-orange-50", text: "text-orange-700", bar: "bg-orange-500" },
+  1: { label: "Critical",  bg: "bg-red-50",    text: "text-red-700",    bar: "bg-red-500"    },
+};
+
+// ── Summary Stats Panel ───────────────────────────────────────────────────────
+
+function SummaryStats({
+  openEndedGroups,
+  mcqGroups,
+  activeTab,
+}: {
+  openEndedGroups: QuestionGroup[];
+  mcqGroups: QuestionGroup[];
+  activeTab: "open_ended" | "mcq";
+}) {
+  const stats = useMemo(() => {
+    if (activeTab === "mcq") {
+      // Per-model MCQ accuracy
+      const modelMap = new Map<string, { correct: number; total: number }>();
+      for (const g of mcqGroups) {
+        const correctAnswer = g.mcqCorrect ?? g.goldAnswer;
+        for (const mr of g.modelResponses) {
+          if (!modelMap.has(mr.modelName)) modelMap.set(mr.modelName, { correct: 0, total: 0 });
+          const entry = modelMap.get(mr.modelName)!;
+          entry.total++;
+          if (isMCQCorrect(mr, correctAnswer)) entry.correct++;
+        }
+      }
+      const models = [...modelMap.entries()]
+        .map(([name, v]) => ({ name, accuracy: v.total > 0 ? v.correct / v.total : 0, correct: v.correct, total: v.total }))
+        .sort((a, b) => b.accuracy - a.accuracy);
+
+      const totalQuestions = mcqGroups.length;
+      const totalResponses = mcqGroups.reduce((s, g) => s + g.modelResponses.length, 0);
+
+      return { type: "mcq" as const, models, totalQuestions, totalResponses };
+    } else {
+      // Per-model open-ended avg score
+      const modelMap = new Map<string, { scores: number[]; totalResponses: number }>();
+      const scoreDist: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+      for (const g of openEndedGroups) {
+        for (const mr of g.modelResponses) {
+          if (!modelMap.has(mr.modelName)) modelMap.set(mr.modelName, { scores: [], totalResponses: 0 });
+          const entry = modelMap.get(mr.modelName)!;
+          entry.totalResponses++;
+          if (mr.score != null) {
+            entry.scores.push(mr.score);
+            scoreDist[mr.score] = (scoreDist[mr.score] ?? 0) + 1;
+          }
+        }
+      }
+
+      const models = [...modelMap.entries()]
+        .map(([name, v]) => ({
+          name,
+          avg: v.scores.length > 0 ? v.scores.reduce((a, b) => a + b, 0) / v.scores.length : null,
+          evaluated: v.scores.length,
+          total: v.totalResponses,
+        }))
+        .sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0));
+
+      const totalEvaluated = Object.values(scoreDist).reduce((a, b) => a + b, 0);
+
+      return { type: "open" as const, models, scoreDist, totalEvaluated };
+    }
+  }, [openEndedGroups, mcqGroups, activeTab]);
+
+  if (activeTab === "open_ended" && stats.type === "open") {
+    const { models, scoreDist, totalEvaluated } = stats;
+    if (models.length === 0) return null;
+
+    return (
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 mb-4">
+        {/* Model comparison row */}
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(models.length, 4)}, 1fr)` }}>
+          {models.map((m, i) => (
+            <Card key={m.name} className={`relative overflow-hidden ${i === 0 && m.avg != null ? "ring-2 ring-primary/30" : ""}`}>
+              <CardContent className="p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground truncate" title={m.name}>{m.name}</p>
+                    {i === 0 && m.avg != null && (
+                      <Badge className="text-[9px] h-4 px-1.5 mt-0.5 bg-primary/10 text-primary border-0">Top</Badge>
+                    )}
+                  </div>
+                  {m.avg != null ? (
+                    <ScoreBadge score={m.avg} />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </div>
+                <div className="mt-2.5 space-y-1">
+                  {m.avg != null && (
+                    <div className="w-full bg-muted rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full bg-primary transition-all"
+                        style={{ width: `${(m.avg / 5) * 100}%` }}
+                      />
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">
+                    {m.evaluated} / {m.total} evaluated
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Score distribution bar */}
+        {totalEvaluated > 0 && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Score Distribution — {totalEvaluated} evaluations
+                </p>
+              </div>
+              <div className="flex gap-1.5 h-14 items-end">
+                {[5, 4, 3, 2, 1].map((s) => {
+                  const count = scoreDist[s] ?? 0;
+                  const pct = totalEvaluated > 0 ? (count / totalEvaluated) * 100 : 0;
+                  const meta = SCORE_META[s];
+                  return (
+                    <div key={s} className="flex-1 flex flex-col items-center gap-1">
+                      <span className="text-[10px] font-semibold text-muted-foreground">{count > 0 ? count : ""}</span>
+                      <div
+                        className={`w-full rounded-t-sm ${meta.bar} transition-all min-h-[2px]`}
+                        style={{ height: `${Math.max(2, pct * 0.42)}rem` }}
+                        title={`Score ${s}: ${count} (${pct.toFixed(0)}%)`}
+                      />
+                      <span className={`text-[10px] font-bold ${meta.text}`}>{s}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex gap-3 mt-3 flex-wrap">
+                {[5, 4, 3, 2, 1].map((s) => {
+                  const count = scoreDist[s] ?? 0;
+                  const pct = totalEvaluated > 0 ? (count / totalEvaluated) * 100 : 0;
+                  const meta = SCORE_META[s];
+                  return (
+                    <div key={s} className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-sm ${meta.bar}`} />
+                      <span className="text-[10px] text-muted-foreground">{meta.label}: {pct.toFixed(0)}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </motion.div>
+    );
+  }
+
+  if (activeTab === "mcq" && stats.type === "mcq") {
+    const { models, totalQuestions, totalResponses } = stats;
+    if (models.length === 0) return null;
+
+    return (
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 mb-4">
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(models.length, 4)}, 1fr)` }}>
+          {models.map((m, i) => (
+            <Card key={m.name} className={i === 0 ? "ring-2 ring-blue-200" : ""}>
+              <CardContent className="p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground truncate" title={m.name}>{m.name}</p>
+                    {i === 0 && (
+                      <Badge className="text-[9px] h-4 px-1.5 mt-0.5 bg-blue-100 text-blue-700 border-0">Top</Badge>
+                    )}
+                  </div>
+                  <span className={`text-lg font-bold ${m.accuracy >= 0.8 ? "text-green-600" : m.accuracy >= 0.5 ? "text-amber-600" : "text-red-600"}`}>
+                    {(m.accuracy * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <div className="mt-2.5 space-y-1">
+                  <div className="w-full bg-muted rounded-full h-1.5">
+                    <div
+                      className={`h-1.5 rounded-full transition-all ${m.accuracy >= 0.8 ? "bg-green-500" : m.accuracy >= 0.5 ? "bg-amber-500" : "bg-red-500"}`}
+                      style={{ width: `${m.accuracy * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{m.correct} / {m.total} correct</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="bg-muted/30">
+          <CardContent className="p-3 flex items-center gap-6">
+            <div className="text-center">
+              <p className="text-xl font-bold text-foreground">{totalQuestions}</p>
+              <p className="text-xs text-muted-foreground">Questions</p>
+            </div>
+            <div className="w-px bg-border h-8" />
+            <div className="text-center">
+              <p className="text-xl font-bold text-foreground">{totalResponses}</p>
+              <p className="text-xs text-muted-foreground">Responses</p>
+            </div>
+            {models.length > 0 && (
+              <>
+                <div className="w-px bg-border h-8" />
+                <div className="text-center">
+                  <p className="text-xl font-bold text-foreground">{(models[0].accuracy * 100).toFixed(0)}%</p>
+                  <p className="text-xs text-muted-foreground">Best accuracy</p>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
+    );
+  }
+
+  return null;
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -276,6 +500,15 @@ export default function Results() {
             </Button>
           </div>
         </div>
+
+        {/* ── Stats panel (computed from current data) ── */}
+        {!isLoading && (
+          <SummaryStats
+            openEndedGroups={openEndedGroups}
+            mcqGroups={mcqGroups}
+            activeTab={activeTab}
+          />
+        )}
 
         {/* ── Open-ended tab ── */}
         <TabsContent value="open_ended" className="mt-0">
@@ -449,9 +682,7 @@ function MCQQuestionRow({
           <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-90 text-blue-500" : ""}`} />
         </TableCell>
         <TableCell className="align-top py-3 text-center">
-          <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-            {questionNumber}
-          </span>
+          <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{questionNumber}</span>
         </TableCell>
         <TableCell className="align-top py-3">
           <p className="text-sm line-clamp-2 leading-relaxed">{group.questionText}</p>
@@ -467,24 +698,17 @@ function MCQQuestionRow({
                   key={mr.responseId}
                   title={`${mr.modelName}: ${letter}`}
                   className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                    correct
-                      ? "bg-green-50 border-green-200 text-green-700"
-                      : "bg-red-50 border-red-200 text-red-600"
+                    correct ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-600"
                   }`}
                 >
                   {letter}
-                  {correct
-                    ? <CheckCircle2 className="h-2.5 w-2.5 ml-0.5" />
-                    : <XCircle className="h-2.5 w-2.5 ml-0.5" />}
+                  {correct ? <CheckCircle2 className="h-2.5 w-2.5 ml-0.5" /> : <XCircle className="h-2.5 w-2.5 ml-0.5" />}
                 </span>
               );
             })}
             {group.referenceAnswers.map((ra, i) => (
-              <span
-                key={`judge-${i}`}
-                title={`${ra.judgeModelName}: ${ra.answerText?.slice(0,1)?.toUpperCase()}`}
-                className="inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border bg-amber-50 border-amber-200 text-amber-700"
-              >
+              <span key={`judge-${i}`} title={`${ra.judgeModelName}: ${ra.answerText?.slice(0,1)?.toUpperCase()}`}
+                className="inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border bg-amber-50 border-amber-200 text-amber-700">
                 {ra.answerText?.trim().slice(0, 1).toUpperCase() || "?"}
               </span>
             ))}
@@ -506,35 +730,23 @@ function MCQQuestionRow({
         {isOpen && (
           <TableRow className="bg-blue-50/20 hover:bg-blue-50/20">
             <TableCell colSpan={5} className="p-0">
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                 <div className="p-6 border-l-2 border-l-blue-400 ml-10 space-y-5">
 
-                  {/* Question */}
                   <div className="space-y-1.5">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
                     <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{group.questionText}</div>
                   </div>
 
-                  {/* Horizontal comparison grid — scrolls if too many models */}
                   <div className="overflow-x-auto pb-1">
                     <div className="inline-flex gap-3 min-w-max">
-                      {/* Gold Answer */}
                       <div className="flex flex-col items-center gap-1.5 w-20">
                         <p className="text-[10px] font-bold text-green-700 uppercase tracking-wide text-center">Gold</p>
                         <div className="w-20 h-16 flex items-center justify-center text-2xl font-mono font-bold bg-green-50 border-2 border-green-300 rounded-xl text-green-800">
                           {correctAnswer}
                         </div>
                       </div>
-
-                      {/* Divider */}
                       <div className="w-px bg-border self-stretch mx-1" />
-
-                      {/* Each SLM model */}
                       {group.modelResponses.map(mr => {
                         const correct = isMCQCorrect(mr, correctAnswer);
                         const letter = mr.responseText?.trim().slice(0, 1).toUpperCase() || "?";
@@ -543,35 +755,21 @@ function MCQQuestionRow({
                             <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide text-center truncate w-20" title={mr.modelName}>
                               {mr.modelName.split(/[-_]/)[0]}
                             </p>
-                            <p className="text-[9px] text-muted-foreground text-center truncate w-20" title={mr.modelName}>
-                              {mr.modelName}
-                            </p>
+                            <p className="text-[9px] text-muted-foreground text-center truncate w-20" title={mr.modelName}>{mr.modelName}</p>
                             <div className={`w-20 h-16 flex flex-col items-center justify-center gap-1 text-xl font-mono font-bold rounded-xl border-2 ${
-                              correct
-                                ? "bg-green-50 border-green-300 text-green-800"
-                                : "bg-red-50 border-red-300 text-red-700"
+                              correct ? "bg-green-50 border-green-300 text-green-800" : "bg-red-50 border-red-300 text-red-700"
                             }`}>
                               {letter}
-                              {correct
-                                ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                                : <XCircle className="h-3.5 w-3.5 text-red-500" />}
+                              {correct ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> : <XCircle className="h-3.5 w-3.5 text-red-500" />}
                             </div>
                           </div>
                         );
                       })}
-
-                      {/* Divider before judges */}
-                      {group.referenceAnswers.length > 0 && (
-                        <div className="w-px bg-amber-200 self-stretch mx-1" />
-                      )}
-
-                      {/* Judge reference answers */}
+                      {group.referenceAnswers.length > 0 && <div className="w-px bg-amber-200 self-stretch mx-1" />}
                       {group.referenceAnswers.map((ra, i) => (
                         <div key={i} className="flex flex-col items-center gap-1.5 w-20">
                           <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide text-center">Judge</p>
-                          <p className="text-[9px] text-amber-600 text-center truncate w-20" title={ra.judgeModelName}>
-                            {ra.judgeModelName}
-                          </p>
+                          <p className="text-[9px] text-amber-600 text-center truncate w-20" title={ra.judgeModelName}>{ra.judgeModelName}</p>
                           <div className="w-20 h-16 flex items-center justify-center text-2xl font-mono font-bold bg-amber-50 border-2 border-amber-300 rounded-xl text-amber-800">
                             {ra.answerText?.trim().slice(0, 1).toUpperCase() || "?"}
                           </div>
@@ -580,7 +778,6 @@ function MCQQuestionRow({
                     </div>
                   </div>
 
-                  {/* Per-model details (score + delete) */}
                   {group.modelResponses.some(mr => mr.inferenceTimeMs || canDelete(mr.responseCreatedBy)) && (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1">
                       {group.modelResponses.map(mr => {
@@ -595,10 +792,8 @@ function MCQQuestionRow({
                               {mr.inferenceTimeMs && <p className="text-muted-foreground">{mr.inferenceTimeMs}ms</p>}
                             </div>
                             {canDelete(mr.responseCreatedBy) && (
-                              <Button variant="ghost" size="icon"
-                                className="h-6 w-6 shrink-0 text-red-500 hover:bg-red-100"
-                                onClick={(e) => { e.stopPropagation(); onDeleteResponse(mr.responseId); }}
-                                title="Delete response">
+                              <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 text-red-500 hover:bg-red-100"
+                                onClick={(e) => { e.stopPropagation(); onDeleteResponse(mr.responseId); }} title="Delete response">
                                 <Trash2 className="h-3 w-3" />
                               </Button>
                             )}
@@ -648,9 +843,7 @@ function OpenEndedQuestionRow({
           <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-90 text-primary" : ""}`} />
         </TableCell>
         <TableCell className="align-top py-3 text-center">
-          <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-            {questionNumber}
-          </span>
+          <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">{questionNumber}</span>
         </TableCell>
         <TableCell className="align-top py-3">
           <p className="text-sm line-clamp-2 leading-relaxed">{group.questionText}</p>
@@ -659,25 +852,16 @@ function OpenEndedQuestionRow({
         <TableCell className="align-top py-3">
           <div className="flex flex-wrap gap-1.5">
             {group.modelResponses.map(mr => (
-              <span
-                key={mr.responseId}
-                title={mr.modelName}
-                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 font-medium"
-              >
+              <span key={mr.responseId} title={mr.modelName}
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 font-medium">
                 <span className="max-w-[80px] truncate">{mr.modelName.split(/[-_]/)[0]}</span>
-                {mr.score != null && (
-                  <span className="font-mono font-bold text-[10px]">{mr.score}/5</span>
-                )}
+                {mr.score != null && <span className="font-mono font-bold text-[10px]">{mr.score}/5</span>}
               </span>
             ))}
           </div>
         </TableCell>
         <TableCell className="align-top py-3 text-right pr-4">
-          {avgScore != null ? (
-            <ScoreBadge score={avgScore} />
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
+          {avgScore != null ? <ScoreBadge score={avgScore} /> : <span className="text-xs text-muted-foreground">—</span>}
         </TableCell>
       </TableRow>
 
@@ -685,46 +869,34 @@ function OpenEndedQuestionRow({
         {isOpen && (
           <TableRow className="bg-slate-50 hover:bg-slate-50">
             <TableCell colSpan={5} className="p-0">
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="overflow-hidden"
-              >
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
                 <div className="p-6 border-l-2 border-l-primary ml-10 space-y-5">
 
-                  {/* Question */}
                   <div className="space-y-1.5">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
                     <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{group.questionText}</div>
                   </div>
 
-                  {/* Gold Answer */}
                   <div className="space-y-1.5">
                     <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Gold Answer</p>
                     <div className="text-sm leading-relaxed bg-green-50 border border-green-200 rounded-lg p-3.5 text-green-800">{group.goldAnswer}</div>
                   </div>
 
-                  {/* SLM model tabs */}
                   {group.modelResponses.length > 0 && (
                     <div className="space-y-3">
                       <p className="text-xs font-semibold text-primary uppercase tracking-wide">
                         SLM Responses
                         <span className="ml-1.5 text-muted-foreground font-normal">({group.modelResponses.length} models)</span>
                       </p>
-
-                      {/* Tab buttons — horizontally scrollable */}
                       <div className="flex gap-1 border-b border-border overflow-x-auto pb-0 flex-nowrap">
                         {group.modelResponses.map((mr, i) => (
-                          <button
-                            key={mr.responseId}
+                          <button key={mr.responseId}
                             onClick={(e) => { e.stopPropagation(); setActiveModelIdx(i); }}
                             className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
                               activeModelIdx === i
                                 ? "border-primary text-primary bg-primary/5"
                                 : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                            }`}
-                          >
+                            }`}>
                             {mr.modelName}
                             {mr.score != null && (
                               <span className={`ml-1.5 font-bold ${mr.score >= 4 ? "text-green-600" : mr.score >= 3 ? "text-amber-600" : "text-red-500"}`}>
@@ -735,29 +907,22 @@ function OpenEndedQuestionRow({
                         ))}
                       </div>
 
-                      {/* Active model panel */}
                       {group.modelResponses[activeModelIdx] && (() => {
                         const mr = group.modelResponses[activeModelIdx];
                         return (
                           <div className="space-y-3 pt-1">
-                            {/* Response */}
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between">
                                 <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Response</p>
                                 <div className="flex items-center gap-2">
-                                  {mr.inferenceTimeMs && (
-                                    <span className="text-xs text-muted-foreground font-mono">{mr.inferenceTimeMs}ms</span>
-                                  )}
+                                  {mr.inferenceTimeMs && <span className="text-xs text-muted-foreground font-mono">{mr.inferenceTimeMs}ms</span>}
                                   {mr.score != null && <ScoreBadge score={mr.score} />}
-                                  {mr.judgeModelName && (
-                                    <Badge variant="secondary" className="text-xs">{mr.judgeModelName}</Badge>
-                                  )}
+                                  {mr.judgeModelName && <Badge variant="secondary" className="text-xs">{mr.judgeModelName}</Badge>}
                                 </div>
                               </div>
                               <div className="text-sm leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3.5">{mr.responseText}</div>
                             </div>
 
-                            {/* Must-have score */}
                             {mr.mustHaveScore != null && (
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Must-Have Score:</span>
@@ -765,7 +930,6 @@ function OpenEndedQuestionRow({
                               </div>
                             )}
 
-                            {/* Judge reasoning */}
                             {mr.reasoning && (
                               <div className="space-y-1.5">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Reasoning</p>
@@ -775,7 +939,6 @@ function OpenEndedQuestionRow({
                               </div>
                             )}
 
-                            {/* Actions */}
                             <div className="flex gap-2 flex-wrap pt-1">
                               {mr.evaluationId && canDelete(mr.evaluationCreatedBy) && (
                                 <Button variant="outline" size="sm"
@@ -798,7 +961,6 @@ function OpenEndedQuestionRow({
                     </div>
                   )}
 
-                  {/* Judge Reference Answers */}
                   {group.referenceAnswers.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">

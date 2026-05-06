@@ -1,5 +1,5 @@
-import { useListModels, useListDatasets, useRunJudge, getListEvaluationsQueryKey } from "@workspace/api-client-react";
-import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useListModels, useListDatasets, getListEvaluationsQueryKey } from "@workspace/api-client-react";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles } from "lucide-react";
+import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, FileText, ArrowRight } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -36,11 +36,19 @@ interface EvalResult {
   errors: string[];
 }
 
+interface PromptItem {
+  id: string;
+  name: string;
+  type: string;
+  isSystem: boolean;
+  ownerName: string;
+}
+
 const PROVIDER_META: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
-  OpenAI:   { label: "OpenAI",   bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
-  Gemini:   { label: "Google",   bg: "bg-blue-50",    text: "text-blue-700",    border: "border-blue-200",    dot: "bg-blue-500"    },
-  Claude:   { label: "Anthropic",bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   dot: "bg-amber-500"   },
-  DeepSeek: { label: "DeepSeek", bg: "bg-violet-50",  text: "text-violet-700",  border: "border-violet-200",  dot: "bg-violet-500"  },
+  OpenAI:   { label: "OpenAI",    bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
+  Gemini:   { label: "Google",    bg: "bg-blue-50",    text: "text-blue-700",    border: "border-blue-200",    dot: "bg-blue-500"    },
+  Claude:   { label: "Anthropic", bg: "bg-amber-50",   text: "text-amber-700",   border: "border-amber-200",   dot: "bg-amber-500"   },
+  DeepSeek: { label: "DeepSeek",  bg: "bg-violet-50",  text: "text-violet-700",  border: "border-violet-200",  dot: "bg-violet-500"  },
 };
 
 function useActiveJudgeModels() {
@@ -65,17 +73,53 @@ function useRefStatus(datasetId: string | null, judgeModelId: string) {
   });
 }
 
+function useEvalPrompts() {
+  return useQuery<PromptItem[]>({
+    queryKey: ["prompts", "EVALUATION"],
+    queryFn: () =>
+      fetch("/api/prompts?type=EVALUATION", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+}
+
+function useRunJudgeCustom() {
+  return useMutation<
+    EvalResult,
+    { error?: string },
+    {
+      judgeModelId: number;
+      datasetId?: number;
+      modelId?: number;
+      useReferenceAnswers: boolean;
+      evalPromptId?: string;
+    }
+  >({
+    mutationFn: (body) =>
+      fetch("/api/evaluations/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        if (!r.ok) throw await r.json();
+        return r.json();
+      }),
+  });
+}
+
 export default function Evaluate() {
   const { data: models, isLoading: isLoadingModels } = useListModels();
   const { data: datasets, isLoading: isLoadingDatasets } = useListDatasets();
   const { data: activeJudgeModels, isLoading: isLoadingJudge } = useActiveJudgeModels();
-  const runJudge = useRunJudge();
+  const { data: evalPrompts } = useEvalPrompts();
+  const runJudge = useRunJudgeCustom();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const [selectedJudgeId, setSelectedJudgeId] = useSharedJudgeModelId();
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [selectedModelId, setSelectedModelId] = useState<string>("");
+  const [evalPromptId, setEvalPromptId] = useState<string>("system_evaluation");
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
 
   const { data: refStatus } = useRefStatus(selectedDatasetId || null, selectedJudgeId);
@@ -96,24 +140,28 @@ export default function Evaluate() {
     setEvalResult(null);
     runJudge.mutate(
       {
-        data: {
-          judgeModelId: selectedJudge.id,
-          datasetId: parseInt(selectedDatasetId),
-          modelId: selectedModelId && selectedModelId !== "all" ? parseInt(selectedModelId) : undefined,
-          useReferenceAnswers: true,
-        },
+        judgeModelId: selectedJudge.id,
+        datasetId: parseInt(selectedDatasetId),
+        modelId: selectedModelId && selectedModelId !== "all" ? parseInt(selectedModelId) : undefined,
+        useReferenceAnswers: true,
+        evalPromptId: evalPromptId || "system_evaluation",
       },
       {
         onSuccess: (res) => {
           setEvalResult(res);
           queryClient.invalidateQueries({ queryKey: getListEvaluationsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: ["results"] });
           toast({ title: "Evaluation complete", description: `Evaluated ${res.evaluated} responses.` });
         },
         onError: (err) => {
-          toast({ title: "Evaluation failed", description: (err as { error?: string }).error ?? "Unknown error", variant: "destructive" });
+          toast({ title: "Evaluation failed", description: err.error ?? "Unknown error", variant: "destructive" });
         },
       }
     );
+  }
+
+  function promptLabel(p: PromptItem) {
+    return p.isSystem ? "System Default" : `${p.name} (${p.ownerName})`;
   }
 
   return (
@@ -152,9 +200,7 @@ export default function Evaluate() {
                   <AlertCircle className="h-4 w-4 text-amber-600" />
                   <AlertDescription className="text-amber-700 text-sm">
                     No active judge models.{" "}
-                    <Link href="/settings" className="underline font-medium">
-                      Configure a model in Settings →
-                    </Link>
+                    <Link href="/settings" className="underline font-medium">Configure a model in Settings →</Link>
                   </AlertDescription>
                 </Alert>
               ) : (
@@ -182,7 +228,6 @@ export default function Evaluate() {
                     </Select>
                   </div>
 
-                  {/* Selected judge preview */}
                   {selectedJudge && judgeMeta && (
                     <motion.div
                       key={selectedJudgeId}
@@ -208,6 +253,46 @@ export default function Evaluate() {
             </CardContent>
           </Card>
 
+          {/* Evaluation Prompt */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  Evaluation Prompt
+                </CardTitle>
+                <Link href="/settings?tab=prompts">
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                    <Settings className="h-3.5 w-3.5" />
+                    Manage Prompts
+                  </Button>
+                </Link>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The prompt used to instruct the judge how to score each open-ended response. MCQ is graded deterministically.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <Select value={evalPromptId} onValueChange={setEvalPromptId}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(evalPrompts ?? []).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <div className="flex items-center gap-2">
+                        {p.isSystem && (
+                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">System</span>
+                        )}
+                        <span>{promptLabel(p)}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
           {/* Dataset & Model selection */}
           <Card>
             <CardHeader className="pb-3">
@@ -220,10 +305,7 @@ export default function Evaluate() {
                     Dataset <span className="text-destructive">*</span>
                   </Label>
                   {isLoadingDatasets ? <Skeleton className="h-10 w-full" /> : (
-                    <Select value={selectedDatasetId} onValueChange={(v) => {
-                      setSelectedDatasetId(v);
-                      setEvalResult(null);
-                    }}>
+                    <Select value={selectedDatasetId} onValueChange={(v) => { setSelectedDatasetId(v); setEvalResult(null); }}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select dataset" />
                       </SelectTrigger>
@@ -267,8 +349,7 @@ export default function Evaluate() {
                       <div className="flex items-center gap-2">
                         {refComplete
                           ? <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          : <AlertCircle className="h-4 w-4 text-amber-500" />
-                        }
+                          : <AlertCircle className="h-4 w-4 text-amber-500" />}
                         <span className="text-sm font-medium">
                           {refComplete ? "Reference answers ready" : "Reference answers incomplete"}
                         </span>
@@ -367,8 +448,8 @@ export default function Evaluate() {
                     </Alert>
                   )}
                   <Link href="/results">
-                    <Button className="w-full" variant="outline">
-                      View Results →
+                    <Button className="w-full gap-2" variant="outline">
+                      View Results <ArrowRight className="h-4 w-4" />
                     </Button>
                   </Link>
                 </div>
@@ -385,14 +466,15 @@ export default function Evaluate() {
                 <BookOpen className="h-4 w-4 text-muted-foreground" />
                 <CardTitle className="text-sm font-semibold">Scoring Rubric</CardTitle>
               </div>
+              <p className="text-xs text-muted-foreground">Applied to open-ended responses. MCQ is graded automatically.</p>
             </CardHeader>
             <CardContent className="p-0">
               {[
-                { score: 5, label: "Excellent", desc: "Matches or exceeds LLM reference", bg: "bg-green-50", text: "text-green-700", badge: "bg-green-100 text-green-700" },
-                { score: 4, label: "Good", desc: "Clinically sound, minor omissions", bg: "bg-blue-50", text: "text-blue-700", badge: "bg-blue-100 text-blue-700" },
-                { score: 3, label: "Partial", desc: "Acceptable but lacking precision", bg: "bg-amber-50", text: "text-amber-700", badge: "bg-amber-100 text-amber-700" },
-                { score: 2, label: "Weak", desc: "Major clinical omission", bg: "bg-orange-50", text: "text-orange-700", badge: "bg-orange-100 text-orange-700" },
-                { score: 1, label: "Critical", desc: "Hallucination or dangerous error", bg: "bg-red-50", text: "text-red-700", badge: "bg-red-100 text-red-700" },
+                { score: 5, label: "Excellent",  desc: "Matches or exceeds LLM reference",        bg: "bg-green-50",  text: "text-green-700",  badge: "bg-green-100 text-green-700"  },
+                { score: 4, label: "Good",        desc: "Clinically sound, minor omissions",       bg: "bg-blue-50",   text: "text-blue-700",   badge: "bg-blue-100 text-blue-700"    },
+                { score: 3, label: "Partial",     desc: "Acceptable but lacking precision",        bg: "bg-amber-50",  text: "text-amber-700",  badge: "bg-amber-100 text-amber-700"  },
+                { score: 2, label: "Weak",        desc: "Major clinical omission",                 bg: "bg-orange-50", text: "text-orange-700", badge: "bg-orange-100 text-orange-700" },
+                { score: 1, label: "Critical",    desc: "Hallucination or dangerous error",        bg: "bg-red-50",    text: "text-red-700",    badge: "bg-red-100 text-red-700"      },
               ].map(({ score, label, desc, bg, text, badge }) => (
                 <div key={score} className={`flex items-start gap-3 p-3 border-b border-border last:border-0 ${bg}`}>
                   <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 ${badge}`}>{score}</span>
@@ -402,6 +484,24 @@ export default function Evaluate() {
                   </div>
                 </div>
               ))}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-50 border-slate-200">
+            <CardContent className="p-4 space-y-2.5 text-xs text-slate-700">
+              <p className="font-semibold text-slate-800">How it works</p>
+              <div className="flex gap-2">
+                <span className="font-bold shrink-0 text-slate-600">MCQ</span>
+                <span>Graded automatically — model's letter vs. gold answer. No API call needed.</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-bold shrink-0 text-slate-600">Open</span>
+                <span>The judge LLM receives the question, LLM reference answer, and model response — then outputs a score 1–5 with reasoning.</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-bold shrink-0 text-slate-600">Prompt</span>
+                <span>Customize the evaluation criteria, rigor level, and rubric wording via the Evaluation Prompt selector above.</span>
+              </div>
             </CardContent>
           </Card>
         </div>

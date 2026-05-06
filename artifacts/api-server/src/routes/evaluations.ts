@@ -7,7 +7,9 @@ import {
   GetEvaluationParams,
   ListEvaluationsQueryParams,
 } from "@workspace/api-zod";
-import { callLLM, buildJudgePrompt, parseJudgeResponse, scoreMCQDeterministic, type LLMProvider } from "../lib/llm";
+import { callLLM, assembleEvalPrompt, buildJudgePrompt, parseJudgeResponse, scoreMCQDeterministic, type LLMProvider } from "../lib/llm";
+import { resolvePromptSections } from "./prompts";
+import type { EvalSections } from "@workspace/db";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -103,6 +105,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
 
   const { judgeModelId, responseIds, datasetId, modelId } = parsed.data;
   const useReferenceAnswers = !!(req.body as Record<string, unknown>).useReferenceAnswers;
+  const evalPromptId = (req.body as Record<string, unknown>).evalPromptId as string | undefined;
 
   // Resolve judge model from user settings
   let resolvedJudgeModelId = judgeModelId;
@@ -193,6 +196,9 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
     }
   }
 
+  // Resolve evaluation prompt sections once
+  const evalSections = (await resolvePromptSections(evalPromptId ?? null, "EVALUATION")) as EvalSections | null;
+
   // Pre-fetch all reference answers if needed (bulk fetch for performance)
   let refAnswerMap: Map<number, string> = new Map();
   if (useReferenceAnswers) {
@@ -253,13 +259,22 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
         continue;
       }
 
-      const prompt = buildJudgePrompt(
-        question.questionText,
-        question.goldAnswer,
-        response.responseText,
-        (question.metadata as Record<string, unknown>) ?? {},
-        referenceAnswer
-      );
+      const prompt = evalSections
+        ? assembleEvalPrompt(
+            evalSections,
+            question.questionText,
+            question.goldAnswer,
+            response.responseText,
+            (question.metadata as Record<string, unknown>) ?? {},
+            referenceAnswer
+          )
+        : buildJudgePrompt(
+            question.questionText,
+            question.goldAnswer,
+            response.responseText,
+            (question.metadata as Record<string, unknown>) ?? {},
+            referenceAnswer
+          );
 
       const { text, confirmedModel } = await callLLM(
         judgeModel.provider as LLMProvider,
@@ -283,6 +298,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
         judgeModelVersion: resolvedModelVersion,
         confirmedModel: confirmedModel ?? resolvedModelVersion,
         createdBy: uid,
+        promptId: evalPromptId ?? "system_evaluation",
       });
 
       evaluated++;
