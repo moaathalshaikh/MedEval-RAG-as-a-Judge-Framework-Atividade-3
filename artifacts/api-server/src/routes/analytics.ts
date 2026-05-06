@@ -143,13 +143,13 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
         questionId: referenceAnswersTable.questionId,
         judgeModelId: referenceAnswersTable.judgeModelId,
         answerText: referenceAnswersTable.answerText,
-        createdAt: referenceAnswersTable.createdAt,
+        generatedAt: referenceAnswersTable.generatedAt,
       })
       .from(referenceAnswersTable)
-      .orderBy(referenceAnswersTable.createdAt);
+      .orderBy(referenceAnswersTable.generatedAt);
     // last-write-wins per questionId (orderBy createdAt asc → last overwrites)
     for (const ref of refs) {
-      refMap.set(ref.questionId, { answerText: ref.answerText, judgeModelId: ref.judgeModelId });
+      refMap.set(ref.questionId, { answerText: ref.answerText, judgeModelId: ref.judgeModelId ?? 0 });
     }
   }
 
