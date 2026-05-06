@@ -106,6 +106,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
   const { judgeModelId, responseIds, datasetId, modelId } = parsed.data;
   const useReferenceAnswers = !!(req.body as Record<string, unknown>).useReferenceAnswers;
   const evalPromptId = (req.body as Record<string, unknown>).evalPromptId as string | undefined;
+  const questionIds = (req.body as Record<string, unknown>).questionIds as number[] | undefined;
 
   // Resolve judge model from user settings
   let resolvedJudgeModelId = judgeModelId;
@@ -154,8 +155,15 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
       if (row) responseRows.push(row as typeof responseRows[0]);
     }
   } else if (datasetId != null) {
-    const allQ = await db.select().from(questionsTable).where(eq(questionsTable.datasetId, datasetId));
-    const qIds = allQ.map((q) => q.id);
+    const allQ = await db
+      .select()
+      .from(questionsTable)
+      .where(eq(questionsTable.datasetId, datasetId))
+      .orderBy(questionsTable.createdAt);
+    // If caller provided a questionIds slice, restrict to those; otherwise use all
+    const qIds = questionIds && questionIds.length > 0
+      ? allQ.map((q) => q.id).filter((id) => questionIds.includes(id))
+      : allQ.map((q) => q.id);
     if (qIds.length === 0) {
       res.json({ evaluated: 0, skipped: 0, errors: ["No questions in dataset"] });
       return;

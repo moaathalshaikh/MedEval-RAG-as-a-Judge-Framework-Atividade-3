@@ -2,12 +2,13 @@ import { useListModels, useListDatasets, getListEvaluationsQueryKey } from "@wor
 import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, FileText, ArrowRight, Calculator } from "lucide-react";
+import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, FileText, ArrowRight, Calculator, ListFilter } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -89,6 +90,16 @@ function useDatasetQuestionTypes(datasetId: string) {
   });
 }
 
+function useDatasetQuestions(datasetId: string) {
+  return useQuery<{ id: number; questionType: string }[]>({
+    queryKey: ["questions", "list", datasetId],
+    queryFn: () =>
+      fetch(`/api/questions?datasetId=${datasetId}`, { credentials: "include" }).then((r) => r.json()),
+    enabled: !!datasetId,
+    staleTime: 60_000,
+  });
+}
+
 function useEvalPrompts() {
   return useQuery<PromptItem[]>({
     queryKey: ["prompts", "EVALUATION"],
@@ -108,6 +119,7 @@ function useRunJudgeCustom() {
       modelId?: number;
       useReferenceAnswers: boolean;
       evalPromptId?: string;
+      questionIds?: number[];
     }
   >({
     mutationFn: (body) =>
@@ -141,11 +153,35 @@ export default function Evaluate() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Question range state
+  const [rangeMode, setRangeMode] = useState(false);
+  const [fromQ, setFromQ] = useState(1);
+  const [toQRaw, setToQRaw] = useState<number | null>(null);
+
+  // Reset range when dataset changes
+  useEffect(() => {
+    setRangeMode(false);
+    setFromQ(1);
+    setToQRaw(null);
+  }, [selectedDatasetId]);
+
   const { data: refStatus } = useRefStatus(selectedDatasetId || null, selectedJudgeId);
   const { data: questionTypes } = useDatasetQuestionTypes(selectedDatasetId);
+  const { data: allQuestions } = useDatasetQuestions(selectedDatasetId);
+
+  // Range derived values
+  const totalQs = allQuestions?.length ?? questionTypes?.total ?? 0;
+  const effectiveFrom = Math.max(1, Math.min(fromQ, Math.max(1, totalQs)));
+  const effectiveTo = toQRaw !== null
+    ? Math.max(effectiveFrom, Math.min(toQRaw, totalQs))
+    : totalQs;
+  const selectedCount = rangeMode && totalQs > 0 ? effectiveTo - effectiveFrom + 1 : totalQs;
+  const slicedQuestionIds = rangeMode && allQuestions && allQuestions.length > 0
+    ? allQuestions.slice(effectiveFrom - 1, effectiveTo).map((q) => q.id)
+    : undefined;
 
   // Animated progress + elapsed timer while evaluation is running
-  const totalForProgress = questionTypes?.total ?? refStatus?.total ?? 0;
+  const totalForProgress = selectedCount > 0 ? selectedCount : (questionTypes?.total ?? refStatus?.total ?? 0);
   useEffect(() => {
     if (!runJudge.isPending) {
       setLocalProgress(0);
@@ -203,6 +239,7 @@ export default function Evaluate() {
         modelId: selectedModelId && selectedModelId !== "all" ? parseInt(selectedModelId) : undefined,
         useReferenceAnswers: isMixedOrOpen,
         evalPromptId: evalPromptId || "system_evaluation",
+        questionIds: slicedQuestionIds,
       },
       {
         onSuccess: (res) => {
@@ -390,7 +427,7 @@ export default function Evaluate() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold">Dataset & Model</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">
@@ -428,6 +465,62 @@ export default function Evaluate() {
                   )}
                 </div>
               </div>
+
+              {/* Question Range */}
+              {selectedDatasetId && totalQs > 0 && (
+                <div className="space-y-2.5 pt-1 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <ListFilter className="h-3.5 w-3.5" />
+                      Question Range
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setRangeMode(false)}
+                        className={`px-2.5 py-1 text-xs rounded-full transition-colors ${!rangeMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/60"}`}
+                      >
+                        All {totalQs}
+                      </button>
+                      <button
+                        onClick={() => { setRangeMode(true); if (toQRaw === null) setToQRaw(totalQs); }}
+                        className={`px-2.5 py-1 text-xs rounded-full transition-colors ${rangeMode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/60"}`}
+                      >
+                        Custom
+                      </button>
+                    </div>
+                  </div>
+                  {rangeMode && (
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <Label className="text-xs text-muted-foreground shrink-0 w-7">From</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={totalQs}
+                          value={effectiveFrom}
+                          onChange={(e) => setFromQ(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="h-8 text-sm text-center"
+                        />
+                      </div>
+                      <span className="text-muted-foreground text-xs">–</span>
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <Label className="text-xs text-muted-foreground shrink-0 w-3">To</Label>
+                        <Input
+                          type="number"
+                          min={effectiveFrom}
+                          max={totalQs}
+                          value={effectiveTo}
+                          onChange={(e) => setToQRaw(Math.max(effectiveFrom, Math.min(parseInt(e.target.value) || totalQs, totalQs)))}
+                          className="h-8 text-sm text-center"
+                        />
+                      </div>
+                      <Badge variant="outline" className="text-xs shrink-0 tabular-nums">
+                        {selectedCount} q
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
