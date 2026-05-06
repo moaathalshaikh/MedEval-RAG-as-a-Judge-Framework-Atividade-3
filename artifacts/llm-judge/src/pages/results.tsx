@@ -15,67 +15,128 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { currentUnifiedUser } from "@/components/auth-gate";
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
+type ModelResponseEntry = {
+  responseId: number;
+  modelName: string;
+  responseText: string;
+  inferenceTimeMs: number | null;
+  score: number | null;
+  judgeModelName: string | null;
+  evaluationId: number | null;
+  evaluatedAt: string | null;
+  mcqScore: string | null;
+  mcqCorrect: string | null;
+  reasoning: string | null;
+  responseCreatedBy: string | null;
+  evaluationCreatedBy: string | null;
+  mustHaveScore: number | null;
+};
+
+type QuestionGroup = {
+  questionId: number;
+  questionText: string;
+  goldAnswer: string;
+  questionType: string;
+  datasetName: string;
+  mcqCorrect: string | null;
+  referenceAnswers: { answerText: string; judgeModelName: string }[];
+  modelResponses: ModelResponseEntry[];
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function groupRowsByQuestion(rows: any[]): QuestionGroup[] {
+  const map = new Map<number, QuestionGroup>();
+  for (const row of rows) {
+    if (!map.has(row.questionId)) {
+      map.set(row.questionId, {
+        questionId: row.questionId,
+        questionText: row.questionText,
+        goldAnswer: row.goldAnswer,
+        questionType: row.questionType,
+        datasetName: row.datasetName ?? "",
+        mcqCorrect: row.mcqCorrect ?? null,
+        referenceAnswers: row.referenceAnswers ?? [],
+        modelResponses: [],
+      });
+    }
+    const group = map.get(row.questionId)!;
+    // Keep the longest referenceAnswers array
+    if ((row.referenceAnswers?.length ?? 0) > (group.referenceAnswers?.length ?? 0)) {
+      group.referenceAnswers = row.referenceAnswers ?? [];
+    }
+    if (row.mcqCorrect && !group.mcqCorrect) group.mcqCorrect = row.mcqCorrect;
+    if (row.responseId) {
+      // Avoid duplicate responseId
+      if (!group.modelResponses.find(mr => mr.responseId === row.responseId)) {
+        group.modelResponses.push({
+          responseId: row.responseId,
+          modelName: row.modelName ?? "",
+          responseText: row.responseText ?? "",
+          inferenceTimeMs: row.inferenceTimeMs ?? null,
+          score: row.score ?? null,
+          judgeModelName: row.judgeModelName ?? null,
+          evaluationId: row.evaluationId ?? null,
+          evaluatedAt: row.evaluatedAt ?? null,
+          mcqScore: row.mcqScore ?? null,
+          mcqCorrect: row.mcqCorrect ?? null,
+          reasoning: row.reasoning ?? null,
+          responseCreatedBy: row.responseCreatedBy ?? null,
+          evaluationCreatedBy: row.evaluationCreatedBy ?? null,
+          mustHaveScore: row.mustHaveScore ?? null,
+        });
+      }
+    }
+  }
+  return [...map.values()];
+}
+
+function isMCQCorrect(mr: ModelResponseEntry, correctAnswer: string | null): boolean {
+  if (mr.mcqScore != null) return mr.mcqScore.toLowerCase() === "true";
+  return !!(correctAnswer && mr.responseText?.trim().toUpperCase() === correctAnswer.trim().toUpperCase());
+}
+
 function escapeCSV(val: unknown): string {
   const s = val == null ? "" : String(val);
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
 function exportOpenEndedCSV(rows: any[]) {
   const headers = ["model", "dataset", "question", "gold_answer", "response", "must_have_score", "reference_answer", "score", "judge_model", "reasoning"];
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) => [
-      escapeCSV(r.modelName),
-      escapeCSV(r.datasetName),
-      escapeCSV(r.questionText),
-      escapeCSV(r.goldAnswer),
-      escapeCSV(r.responseText),
-      escapeCSV(r.mustHaveScore ?? ""),
-      escapeCSV(r.referenceAnswer ?? ""),
-      escapeCSV(r.score ?? ""),
-      escapeCSV(r.judgeModelName ?? ""),
-      escapeCSV(r.reasoning ?? ""),
-    ].join(",")),
-  ];
+  const lines = [headers.join(","), ...rows.map((r) => [
+    escapeCSV(r.modelName), escapeCSV(r.datasetName), escapeCSV(r.questionText),
+    escapeCSV(r.goldAnswer), escapeCSV(r.responseText), escapeCSV(r.mustHaveScore ?? ""),
+    escapeCSV(r.referenceAnswer ?? ""), escapeCSV(r.score ?? ""),
+    escapeCSV(r.judgeModelName ?? ""), escapeCSV(r.reasoning ?? ""),
+  ].join(","))];
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `open_ended_results_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `open_ended_results_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
   URL.revokeObjectURL(a.href);
 }
 
 function exportMCQCSV(rows: any[]) {
   const headers = ["model", "dataset", "question", "gold_answer", "prediction", "correct_letter", "mcq_score"];
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) => [
-      escapeCSV(r.modelName),
-      escapeCSV(r.datasetName),
-      escapeCSV(r.questionText),
-      escapeCSV(r.goldAnswer),
-      escapeCSV(r.responseText),
-      escapeCSV(r.mcqCorrect ?? ""),
-      escapeCSV(r.mcqScore ?? ""),
-    ].join(",")),
-  ];
+  const lines = [headers.join(","), ...rows.map((r) => [
+    escapeCSV(r.modelName), escapeCSV(r.datasetName), escapeCSV(r.questionText),
+    escapeCSV(r.goldAnswer), escapeCSV(r.responseText), escapeCSV(r.mcqCorrect ?? ""), escapeCSV(r.mcqScore ?? ""),
+  ].join(","))];
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `mcq_results_${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `mcq_results_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
   URL.revokeObjectURL(a.href);
 }
 
 type DeleteTarget = { kind: "response"; responseId: number } | { kind: "evaluation"; evaluationId: number };
-
 function canDelete(createdBy: string | null | undefined): boolean {
   if (createdBy === null || createdBy === undefined) return true;
   return currentUnifiedUser?.id === createdBy;
 }
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function Results() {
   const [datasetId, setDatasetId] = useState<string>("");
@@ -103,15 +164,8 @@ export default function Results() {
   const openEndedRows = results?.filter((r) => r.questionType === "OPEN_ENDED") ?? [];
   const mcqRows = results?.filter((r) => r.questionType === "MCQ") ?? [];
 
-  // Build sequential question-number maps (unique questionIds in appearance order)
-  const openEndedQNumMap = new Map<number, number>();
-  openEndedRows.forEach((r) => {
-    if (!openEndedQNumMap.has(r.questionId)) openEndedQNumMap.set(r.questionId, openEndedQNumMap.size + 1);
-  });
-  const mcqQNumMap = new Map<number, number>();
-  mcqRows.forEach((r) => {
-    if (!mcqQNumMap.has(r.questionId)) mcqQNumMap.set(r.questionId, mcqQNumMap.size + 1);
-  });
+  const openEndedGroups = groupRowsByQuestion(openEndedRows);
+  const mcqGroups = groupRowsByQuestion(mcqRows);
 
   async function clearAllResults() {
     setIsClearing(true);
@@ -162,9 +216,8 @@ export default function Results() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Results</h1>
-          <p className="text-sm text-muted-foreground mt-1">Browse and inspect evaluation outcomes</p>
+          <p className="text-sm text-muted-foreground mt-1">Compare all model responses per question</p>
         </div>
-
         <div className="flex items-center gap-2 flex-wrap">
           <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
           <Select value={datasetId} onValueChange={setDatasetId}>
@@ -173,21 +226,16 @@ export default function Results() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All datasets</SelectItem>
-              {datasets?.map(d => (
-                <SelectItem key={d.id} value={d.id.toString()}>{d.datasetName}</SelectItem>
-              ))}
+              {datasets?.map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.datasetName}</SelectItem>)}
             </SelectContent>
           </Select>
-
           <Select value={modelId} onValueChange={setModelId}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="All models" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All models</SelectItem>
-              {models?.map(m => (
-                <SelectItem key={m.id} value={m.id.toString()}>{m.modelName}</SelectItem>
-              ))}
+              {models?.map(m => <SelectItem key={m.id} value={m.id.toString()}>{m.modelName}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -201,7 +249,7 @@ export default function Results() {
               Open-ended
               {!isLoading && (
                 <span className="text-xs bg-primary/10 text-primary rounded-full px-1.5 py-0.5 font-medium">
-                  {openEndedRows.length}
+                  {openEndedGroups.length}
                 </span>
               )}
             </TabsTrigger>
@@ -209,37 +257,27 @@ export default function Results() {
               MCQ
               {!isLoading && (
                 <span className="text-xs bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 font-medium">
-                  {mcqRows.length}
+                  {mcqGroups.length}
                 </span>
               )}
             </TabsTrigger>
           </TabsList>
-
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 shrink-0"
+            <Button variant="outline" size="sm" className="gap-1.5 shrink-0"
               disabled={activeTab === "open_ended" ? openEndedRows.length === 0 : mcqRows.length === 0}
-              onClick={() => activeTab === "open_ended" ? exportOpenEndedCSV(openEndedRows) : exportMCQCSV(mcqRows)}
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export CSV
+              onClick={() => activeTab === "open_ended" ? exportOpenEndedCSV(openEndedRows) : exportMCQCSV(mcqRows)}>
+              <Download className="h-3.5 w-3.5" />Export CSV
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
+            <Button variant="outline" size="sm"
               className="gap-1.5 shrink-0 text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
               disabled={!results || results.length === 0}
-              onClick={() => setShowClearAll(true)}
-            >
-              <Eraser className="h-3.5 w-3.5" />
-              Clear All
+              onClick={() => setShowClearAll(true)}>
+              <Eraser className="h-3.5 w-3.5" />Clear All
             </Button>
           </div>
         </div>
 
-        {/* Open-ended tab */}
+        {/* ── Open-ended tab ── */}
         <TabsContent value="open_ended" className="mt-0">
           <Card>
             <CardContent className="p-0">
@@ -250,27 +288,26 @@ export default function Results() {
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
-                        <TableHead className="w-10 pl-3"></TableHead>
+                        <TableHead className="w-10 pl-3" />
                         <TableHead className="w-10 text-center text-muted-foreground">#</TableHead>
-                        <TableHead className="w-[14%]">Model</TableHead>
-                        <TableHead className="w-[28%]">Question</TableHead>
-                        <TableHead className="w-[28%]">Response</TableHead>
-                        <TableHead className="w-[10%] text-center">Must-Have</TableHead>
-                        <TableHead className="text-right pr-4">Score</TableHead>
+                        <TableHead className="w-[35%]">Question</TableHead>
+                        <TableHead className="w-[35%]">Model Responses</TableHead>
+                        <TableHead className="text-right pr-4">Avg Score</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {openEndedRows.map((row) => (
-                        <OpenEndedRow
-                          key={`${row.questionId}-${row.responseId || 0}-${row.evaluationId || 'none'}`}
-                          row={row}
-                          questionNumber={openEndedQNumMap.get(row.questionId) ?? 0}
-                          onClearEvaluation={(evaluationId) => setDeleteTarget({ kind: "evaluation", evaluationId })}
+                      {openEndedGroups.map((group, idx) => (
+                        <OpenEndedQuestionRow
+                          key={group.questionId}
+                          group={group}
+                          questionNumber={idx + 1}
+                          onClearEvaluation={(id) => setDeleteTarget({ kind: "evaluation", evaluationId: id })}
+                          onDeleteResponse={(id) => setDeleteTarget({ kind: "response", responseId: id })}
                         />
                       ))}
-                      {openEndedRows.length === 0 && (
+                      {openEndedGroups.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="h-48 text-center text-sm text-muted-foreground">
+                          <TableCell colSpan={5} className="h-48 text-center text-sm text-muted-foreground">
                             No open-ended responses found. Import responses or adjust filters.
                           </TableCell>
                         </TableRow>
@@ -283,7 +320,7 @@ export default function Results() {
           </Card>
         </TabsContent>
 
-        {/* MCQ tab */}
+        {/* ── MCQ tab ── */}
         <TabsContent value="mcq" className="mt-0">
           <Card>
             <CardContent className="p-0">
@@ -294,26 +331,25 @@ export default function Results() {
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
-                        <TableHead className="w-10 pl-3"></TableHead>
+                        <TableHead className="w-10 pl-3" />
                         <TableHead className="w-10 text-center text-muted-foreground">#</TableHead>
-                        <TableHead className="w-[14%]">Model</TableHead>
-                        <TableHead className="w-[35%]">Question</TableHead>
-                        <TableHead className="w-[10%] text-center">Prediction</TableHead>
-                        <TableHead className="w-[10%] text-center">Correct</TableHead>
-                        <TableHead className="text-right pr-4">Score</TableHead>
+                        <TableHead className="w-[40%]">Question</TableHead>
+                        <TableHead>SLM Predictions</TableHead>
+                        <TableHead className="text-right pr-4">Accuracy</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {mcqRows.map((row) => (
-                        <MCQRow
-                          key={`${row.questionId}-${row.responseId || 0}`}
-                          row={row}
-                          questionNumber={mcqQNumMap.get(row.questionId) ?? 0}
+                      {mcqGroups.map((group, idx) => (
+                        <MCQQuestionRow
+                          key={group.questionId}
+                          group={group}
+                          questionNumber={idx + 1}
+                          onDeleteResponse={(id) => setDeleteTarget({ kind: "response", responseId: id })}
                         />
                       ))}
-                      {mcqRows.length === 0 && (
+                      {mcqGroups.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="h-48 text-center text-sm text-muted-foreground">
+                          <TableCell colSpan={5} className="h-48 text-center text-sm text-muted-foreground">
                             No MCQ responses found. Import responses or adjust filters.
                           </TableCell>
                         </TableRow>
@@ -327,7 +363,7 @@ export default function Results() {
         </TabsContent>
       </Tabs>
 
-      {/* Confirm: clear ALL results */}
+      {/* Dialogs */}
       <Dialog open={showClearAll} onOpenChange={(o) => !o && setShowClearAll(false)}>
         <DialogContent>
           <DialogHeader>
@@ -353,14 +389,11 @@ export default function Results() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm: clear evaluation */}
       <Dialog open={deleteTarget?.kind === "evaluation"} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Clear evaluation score?</DialogTitle>
-            <DialogDescription>
-              This removes the judge score and reasoning for this response. The response itself stays — you can re-evaluate it afterwards.
-            </DialogDescription>
+            <DialogDescription>This removes the judge score and reasoning. The response stays — you can re-evaluate afterwards.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>Cancel</Button>
@@ -371,14 +404,11 @@ export default function Results() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirm: delete response */}
       <Dialog open={deleteTarget?.kind === "response"} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete this response?</DialogTitle>
-            <DialogDescription>
-              This permanently removes the model response and its evaluation. You can re-import this response later.
-            </DialogDescription>
+            <DialogDescription>This permanently removes the model response and its evaluation.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={isDeleting}>Cancel</Button>
@@ -392,27 +422,31 @@ export default function Results() {
   );
 }
 
-// ── Open-ended row ──────────────────────────────────────────────────────────
+// ── MCQ Question Row ──────────────────────────────────────────────────────────
 
-function OpenEndedRow({
-  row,
+function MCQQuestionRow({
+  group,
   questionNumber,
-  onClearEvaluation,
+  onDeleteResponse,
 }: {
-  row: any;
+  group: QuestionGroup;
   questionNumber: number;
-  onClearEvaluation: (evaluationId: number) => void;
+  onDeleteResponse: (id: number) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const correctAnswer = group.mcqCorrect ?? group.goldAnswer;
+
+  const totalModels = group.modelResponses.length;
+  const correctCount = group.modelResponses.filter(mr => isMCQCorrect(mr, correctAnswer)).length;
 
   return (
     <>
       <TableRow
-        className={`cursor-pointer transition-colors ${isOpen ? 'bg-primary/5 border-l-2 border-l-primary' : 'hover:bg-muted/40'}`}
+        className={`cursor-pointer transition-colors ${isOpen ? "bg-blue-50/60 border-l-2 border-l-blue-400" : "hover:bg-muted/40"}`}
         onClick={() => setIsOpen(!isOpen)}
       >
         <TableCell className="pl-3">
-          <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-90 text-primary' : ''}`} />
+          <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-90 text-blue-500" : ""}`} />
         </TableCell>
         <TableCell className="align-top py-3 text-center">
           <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -420,132 +454,159 @@ function OpenEndedRow({
           </span>
         </TableCell>
         <TableCell className="align-top py-3">
-          <p className="font-medium text-sm">{row.modelName}</p>
-          <Badge variant="outline" className="text-xs mt-1 font-normal max-w-[120px] truncate block">
-            {row.datasetName}
-          </Badge>
-          {row.inferenceTimeMs && (
-            <p className="text-xs text-muted-foreground mt-1">{row.inferenceTimeMs}ms</p>
-          )}
+          <p className="text-sm line-clamp-2 leading-relaxed">{group.questionText}</p>
+          <Badge variant="outline" className="text-xs mt-1 font-normal">{group.datasetName}</Badge>
         </TableCell>
         <TableCell className="align-top py-3">
-          <p className="text-sm line-clamp-2 leading-relaxed">{row.questionText}</p>
-          <p className="text-xs text-green-600 mt-1.5 line-clamp-1">
-            <span className="text-muted-foreground">Gold: </span>{row.goldAnswer}
-          </p>
-        </TableCell>
-        <TableCell className="align-top py-3">
-          <p className="text-sm line-clamp-3 leading-relaxed text-muted-foreground">{row.responseText}</p>
-        </TableCell>
-        <TableCell className="align-top py-3 text-center">
-          {row.mustHaveScore != null ? (
-            <span className="text-xs font-mono font-semibold text-foreground">
-              {Number(row.mustHaveScore).toFixed(2)}
-            </span>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
+          <div className="flex flex-wrap gap-1.5">
+            {group.modelResponses.map(mr => {
+              const correct = isMCQCorrect(mr, correctAnswer);
+              const letter = mr.responseText?.trim().slice(0, 1).toUpperCase() || "?";
+              return (
+                <span
+                  key={mr.responseId}
+                  title={`${mr.modelName}: ${letter}`}
+                  className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                    correct
+                      ? "bg-green-50 border-green-200 text-green-700"
+                      : "bg-red-50 border-red-200 text-red-600"
+                  }`}
+                >
+                  {letter}
+                  {correct
+                    ? <CheckCircle2 className="h-2.5 w-2.5 ml-0.5" />
+                    : <XCircle className="h-2.5 w-2.5 ml-0.5" />}
+                </span>
+              );
+            })}
+            {group.referenceAnswers.map((ra, i) => (
+              <span
+                key={`judge-${i}`}
+                title={`${ra.judgeModelName}: ${ra.answerText?.slice(0,1)?.toUpperCase()}`}
+                className="inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border bg-amber-50 border-amber-200 text-amber-700"
+              >
+                {ra.answerText?.trim().slice(0, 1).toUpperCase() || "?"}
+              </span>
+            ))}
+          </div>
         </TableCell>
         <TableCell className="align-top py-3 text-right pr-4">
-          <ScoreBadge score={row.score} />
-          {row.evaluatedAt && (
-            <p className="text-xs text-muted-foreground mt-1.5">
-              {new Date(row.evaluatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            </p>
+          {totalModels > 0 && (
+            <div className="flex items-center justify-end gap-1.5">
+              <span className={`text-sm font-bold ${correctCount === totalModels ? "text-green-600" : correctCount === 0 ? "text-red-600" : "text-amber-600"}`}>
+                {correctCount}/{totalModels}
+              </span>
+              <span className="text-xs text-muted-foreground">correct</span>
+            </div>
           )}
         </TableCell>
       </TableRow>
 
       <AnimatePresence>
         {isOpen && (
-          <TableRow className="bg-slate-50 hover:bg-slate-50">
-            <TableCell colSpan={7} className="p-0">
+          <TableRow className="bg-blue-50/20 hover:bg-blue-50/20">
+            <TableCell colSpan={5} className="p-0">
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
                 className="overflow-hidden"
               >
-                <div className="p-6 border-l-2 border-l-primary ml-10 grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  {/* Left: full text */}
-                  <div className="lg:col-span-7 space-y-4">
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
-                      <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{row.questionText}</div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Gold Answer</p>
-                      <div className="text-sm leading-relaxed bg-green-50 border border-green-200 rounded-lg p-3.5 text-green-800">{row.goldAnswer}</div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-semibold text-primary uppercase tracking-wide">Model Response</p>
-                      <div className="text-sm leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3.5">{row.responseText}</div>
-                    </div>
-                    {row.referenceAnswers && row.referenceAnswers.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
-                          LLM Reference Answers
-                          <span className="ml-1.5 text-amber-400 font-normal">({row.referenceAnswers.length})</span>
-                        </p>
-                        {row.referenceAnswers.map((ra: { answerText: string; judgeModelName: string }, i: number) => (
-                          <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-3.5">
-                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-800 mb-2">
-                              {ra.judgeModelName}
-                            </span>
-                            <div className="text-sm leading-relaxed text-amber-900 mt-1.5">{ra.answerText}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {row.mustHaveScore != null && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Must-Have Score:</span>
-                        <span className="text-sm font-mono font-semibold">{Number(row.mustHaveScore).toFixed(4)}</span>
-                      </div>
-                    )}
+                <div className="p-6 border-l-2 border-l-blue-400 ml-10 space-y-5">
+
+                  {/* Question */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
+                    <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{group.questionText}</div>
                   </div>
 
-                  {/* Right: judge details + actions */}
-                  <div className="lg:col-span-5 space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between mb-4">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Evaluation</p>
-                        {row.judgeModelName && (
-                          <Badge variant="secondary" className="text-xs">{row.judgeModelName}</Badge>
-                        )}
+                  {/* Horizontal comparison grid — scrolls if too many models */}
+                  <div className="overflow-x-auto pb-1">
+                    <div className="inline-flex gap-3 min-w-max">
+                      {/* Gold Answer */}
+                      <div className="flex flex-col items-center gap-1.5 w-20">
+                        <p className="text-[10px] font-bold text-green-700 uppercase tracking-wide text-center">Gold</p>
+                        <div className="w-20 h-16 flex items-center justify-center text-2xl font-mono font-bold bg-green-50 border-2 border-green-300 rounded-xl text-green-800">
+                          {correctAnswer}
+                        </div>
                       </div>
-                      <div className="mb-4">
-                        <ScoreBadge score={row.score} />
-                      </div>
-                      {row.reasoning ? (
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Reasoning</p>
-                          <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5 max-h-[200px] overflow-y-auto whitespace-pre-wrap text-muted-foreground">
-                            {row.reasoning}
+
+                      {/* Divider */}
+                      <div className="w-px bg-border self-stretch mx-1" />
+
+                      {/* Each SLM model */}
+                      {group.modelResponses.map(mr => {
+                        const correct = isMCQCorrect(mr, correctAnswer);
+                        const letter = mr.responseText?.trim().slice(0, 1).toUpperCase() || "?";
+                        return (
+                          <div key={mr.responseId} className="flex flex-col items-center gap-1.5 w-20">
+                            <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide text-center truncate w-20" title={mr.modelName}>
+                              {mr.modelName.split(/[-_]/)[0]}
+                            </p>
+                            <p className="text-[9px] text-muted-foreground text-center truncate w-20" title={mr.modelName}>
+                              {mr.modelName}
+                            </p>
+                            <div className={`w-20 h-16 flex flex-col items-center justify-center gap-1 text-xl font-mono font-bold rounded-xl border-2 ${
+                              correct
+                                ? "bg-green-50 border-green-300 text-green-800"
+                                : "bg-red-50 border-red-300 text-red-700"
+                            }`}>
+                              {letter}
+                              {correct
+                                ? <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                                : <XCircle className="h-3.5 w-3.5 text-red-500" />}
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center h-28 rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-                          Not yet evaluated
-                        </div>
+                        );
+                      })}
+
+                      {/* Divider before judges */}
+                      {group.referenceAnswers.length > 0 && (
+                        <div className="w-px bg-amber-200 self-stretch mx-1" />
                       )}
-                    </div>
 
-                    {row.evaluationId && canDelete(row.evaluationCreatedBy) && (
-                      <div className="border-t border-border pt-4 space-y-2">
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Actions</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full gap-2 text-amber-700 border-amber-200 hover:bg-amber-50 hover:border-amber-300"
-                          onClick={(e) => { e.stopPropagation(); onClearEvaluation(row.evaluationId); }}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                          Clear evaluation score
-                        </Button>
-                      </div>
-                    )}
+                      {/* Judge reference answers */}
+                      {group.referenceAnswers.map((ra, i) => (
+                        <div key={i} className="flex flex-col items-center gap-1.5 w-20">
+                          <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide text-center">Judge</p>
+                          <p className="text-[9px] text-amber-600 text-center truncate w-20" title={ra.judgeModelName}>
+                            {ra.judgeModelName}
+                          </p>
+                          <div className="w-20 h-16 flex items-center justify-center text-2xl font-mono font-bold bg-amber-50 border-2 border-amber-300 rounded-xl text-amber-800">
+                            {ra.answerText?.trim().slice(0, 1).toUpperCase() || "?"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Per-model details (score + delete) */}
+                  {group.modelResponses.some(mr => mr.inferenceTimeMs || canDelete(mr.responseCreatedBy)) && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1">
+                      {group.modelResponses.map(mr => {
+                        const correct = isMCQCorrect(mr, correctAnswer);
+                        return (
+                          <div key={mr.responseId}
+                            className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 ${
+                              correct ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+                            }`}>
+                            <div className="min-w-0">
+                              <p className="font-semibold truncate text-foreground" title={mr.modelName}>{mr.modelName}</p>
+                              {mr.inferenceTimeMs && <p className="text-muted-foreground">{mr.inferenceTimeMs}ms</p>}
+                            </div>
+                            {canDelete(mr.responseCreatedBy) && (
+                              <Button variant="ghost" size="icon"
+                                className="h-6 w-6 shrink-0 text-red-500 hover:bg-red-100"
+                                onClick={(e) => { e.stopPropagation(); onDeleteResponse(mr.responseId); }}
+                                title="Delete response">
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </TableCell>
@@ -556,28 +617,35 @@ function OpenEndedRow({
   );
 }
 
-// ── MCQ row ─────────────────────────────────────────────────────────────────
+// ── Open-ended Question Row ───────────────────────────────────────────────────
 
-function MCQRow({
-  row,
+function OpenEndedQuestionRow({
+  group,
   questionNumber,
+  onClearEvaluation,
+  onDeleteResponse,
 }: {
-  row: any;
+  group: QuestionGroup;
   questionNumber: number;
+  onClearEvaluation: (id: number) => void;
+  onDeleteResponse: (id: number) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const isCorrect = row.mcqScore != null
-    ? row.mcqScore.toLowerCase() === "true"
-    : row.responseText?.toUpperCase() === row.mcqCorrect?.toUpperCase();
+  const [activeModelIdx, setActiveModelIdx] = useState(0);
+
+  const evaluatedModels = group.modelResponses.filter(mr => mr.score != null);
+  const avgScore = evaluatedModels.length > 0
+    ? evaluatedModels.reduce((sum, mr) => sum + (mr.score ?? 0), 0) / evaluatedModels.length
+    : null;
 
   return (
     <>
       <TableRow
-        className={`cursor-pointer transition-colors ${isOpen ? 'bg-blue-50/50 border-l-2 border-l-blue-400' : 'hover:bg-muted/40'}`}
+        className={`cursor-pointer transition-colors ${isOpen ? "bg-primary/5 border-l-2 border-l-primary" : "hover:bg-muted/40"}`}
         onClick={() => setIsOpen(!isOpen)}
       >
         <TableCell className="pl-3">
-          <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-90 text-blue-500' : ''}`} />
+          <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-90 text-primary" : ""}`} />
         </TableCell>
         <TableCell className="align-top py-3 text-center">
           <span className="text-xs font-mono font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -585,50 +653,28 @@ function MCQRow({
           </span>
         </TableCell>
         <TableCell className="align-top py-3">
-          <p className="font-medium text-sm">{row.modelName}</p>
-          <Badge variant="outline" className="text-xs mt-1 font-normal max-w-[120px] truncate block">
-            {row.datasetName}
-          </Badge>
+          <p className="text-sm line-clamp-2 leading-relaxed">{group.questionText}</p>
+          <Badge variant="outline" className="text-xs mt-1 font-normal">{group.datasetName}</Badge>
         </TableCell>
         <TableCell className="align-top py-3">
-          <p className="text-sm line-clamp-2 leading-relaxed">{row.questionText}</p>
-        </TableCell>
-        <TableCell className="align-top py-3 text-center">
-          <span className="text-sm font-mono font-bold text-blue-700">{row.responseText}</span>
-        </TableCell>
-        <TableCell className="align-top py-3 text-center">
-          {row.mcqCorrect ? (
-            <span className="text-sm font-mono font-bold text-green-700">{row.mcqCorrect}</span>
-          ) : (
-            <span className="text-xs text-muted-foreground">—</span>
-          )}
+          <div className="flex flex-wrap gap-1.5">
+            {group.modelResponses.map(mr => (
+              <span
+                key={mr.responseId}
+                title={mr.modelName}
+                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border bg-blue-50 border-blue-200 text-blue-700 font-medium"
+              >
+                <span className="max-w-[80px] truncate">{mr.modelName.split(/[-_]/)[0]}</span>
+                {mr.score != null && (
+                  <span className="font-mono font-bold text-[10px]">{mr.score}/5</span>
+                )}
+              </span>
+            ))}
+          </div>
         </TableCell>
         <TableCell className="align-top py-3 text-right pr-4">
-          {row.mcqScore != null ? (
-            <div className="flex items-center justify-end gap-1.5">
-              {isCorrect ? (
-                <CheckCircle2 className="h-4 w-4 text-green-600" />
-              ) : (
-                <XCircle className="h-4 w-4 text-red-500" />
-              )}
-              <span className={`text-xs font-semibold ${isCorrect ? "text-green-700" : "text-red-600"}`}>
-                {isCorrect ? "Correct" : "Wrong"}
-              </span>
-            </div>
-          ) : row.mcqCorrect ? (
-            <div className="flex items-center justify-end gap-1.5">
-              {row.responseText?.toUpperCase() === row.mcqCorrect?.toUpperCase() ? (
-                <>
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span className="text-xs font-semibold text-green-700">Correct</span>
-                </>
-              ) : (
-                <>
-                  <XCircle className="h-4 w-4 text-red-500" />
-                  <span className="text-xs font-semibold text-red-600">Wrong</span>
-                </>
-              )}
-            </div>
+          {avgScore != null ? (
+            <ScoreBadge score={avgScore} />
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
@@ -637,77 +683,138 @@ function MCQRow({
 
       <AnimatePresence>
         {isOpen && (
-          <TableRow className="bg-blue-50/30 hover:bg-blue-50/30">
-            <TableCell colSpan={7} className="p-0">
+          <TableRow className="bg-slate-50 hover:bg-slate-50">
+            <TableCell colSpan={5} className="p-0">
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
                 className="overflow-hidden"
               >
-                <div className="p-6 border-l-2 border-l-blue-400 ml-10 grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Left: question + answers */}
-                  <div className="space-y-4">
-                    <div className="space-y-1.5">
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
-                      <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{row.questionText}</div>
+                <div className="p-6 border-l-2 border-l-primary ml-10 space-y-5">
+
+                  {/* Question */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
+                    <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{group.questionText}</div>
+                  </div>
+
+                  {/* Gold Answer */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Gold Answer</p>
+                    <div className="text-sm leading-relaxed bg-green-50 border border-green-200 rounded-lg p-3.5 text-green-800">{group.goldAnswer}</div>
+                  </div>
+
+                  {/* SLM model tabs */}
+                  {group.modelResponses.length > 0 && (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-primary uppercase tracking-wide">
+                        SLM Responses
+                        <span className="ml-1.5 text-muted-foreground font-normal">({group.modelResponses.length} models)</span>
+                      </p>
+
+                      {/* Tab buttons — horizontally scrollable */}
+                      <div className="flex gap-1 border-b border-border overflow-x-auto pb-0 flex-nowrap">
+                        {group.modelResponses.map((mr, i) => (
+                          <button
+                            key={mr.responseId}
+                            onClick={(e) => { e.stopPropagation(); setActiveModelIdx(i); }}
+                            className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+                              activeModelIdx === i
+                                ? "border-primary text-primary bg-primary/5"
+                                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+                            }`}
+                          >
+                            {mr.modelName}
+                            {mr.score != null && (
+                              <span className={`ml-1.5 font-bold ${mr.score >= 4 ? "text-green-600" : mr.score >= 3 ? "text-amber-600" : "text-red-500"}`}>
+                                {mr.score}/5
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Active model panel */}
+                      {group.modelResponses[activeModelIdx] && (() => {
+                        const mr = group.modelResponses[activeModelIdx];
+                        return (
+                          <div className="space-y-3 pt-1">
+                            {/* Response */}
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Response</p>
+                                <div className="flex items-center gap-2">
+                                  {mr.inferenceTimeMs && (
+                                    <span className="text-xs text-muted-foreground font-mono">{mr.inferenceTimeMs}ms</span>
+                                  )}
+                                  {mr.score != null && <ScoreBadge score={mr.score} />}
+                                  {mr.judgeModelName && (
+                                    <Badge variant="secondary" className="text-xs">{mr.judgeModelName}</Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-sm leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3.5">{mr.responseText}</div>
+                            </div>
+
+                            {/* Must-have score */}
+                            {mr.mustHaveScore != null && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Must-Have Score:</span>
+                                <span className="text-sm font-mono font-semibold">{Number(mr.mustHaveScore).toFixed(4)}</span>
+                              </div>
+                            )}
+
+                            {/* Judge reasoning */}
+                            {mr.reasoning && (
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Reasoning</p>
+                                <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5 max-h-[180px] overflow-y-auto whitespace-pre-wrap text-muted-foreground">
+                                  {mr.reasoning}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Actions */}
+                            <div className="flex gap-2 flex-wrap pt-1">
+                              {mr.evaluationId && canDelete(mr.evaluationCreatedBy) && (
+                                <Button variant="outline" size="sm"
+                                  className="gap-2 text-amber-700 border-amber-200 hover:bg-amber-50"
+                                  onClick={(e) => { e.stopPropagation(); onClearEvaluation(mr.evaluationId!); }}>
+                                  <RotateCcw className="h-3.5 w-3.5" />Clear evaluation
+                                </Button>
+                              )}
+                              {canDelete(mr.responseCreatedBy) && (
+                                <Button variant="outline" size="sm"
+                                  className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                                  onClick={(e) => { e.stopPropagation(); onDeleteResponse(mr.responseId); }}>
+                                  <Trash2 className="h-3.5 w-3.5" />Delete response
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
-                    <div
-                      className="grid gap-3"
-                      style={{ gridTemplateColumns: `repeat(${2 + (row.referenceAnswers?.length ?? 0)}, minmax(0, 1fr))` }}
-                    >
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Correct Answer</p>
-                        <div className="text-sm font-mono font-bold bg-green-50 border border-green-200 rounded-lg p-3.5 text-green-800 text-center text-xl">
-                          {row.mcqCorrect ?? row.goldAnswer}
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Model Prediction</p>
-                        <div className={`text-sm font-mono font-bold rounded-lg p-3.5 text-center text-xl border ${isCorrect ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"}`}>
-                          {row.responseText}
-                        </div>
-                      </div>
-                      {(row.referenceAnswers ?? []).map((ra: { answerText: string; judgeModelName: string }, i: number) => (
-                        <div key={i} className="space-y-1.5">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Judge</p>
-                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-1.5 py-0.5 text-xs font-medium text-amber-800 leading-none max-w-full truncate">
-                              {ra.judgeModelName}
-                            </span>
-                          </div>
-                          <div className="text-sm font-mono font-bold bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-amber-900 text-center text-xl">
-                            {String(ra.answerText ?? "").trim().slice(0, 1).toUpperCase() || "?"}
-                          </div>
+                  )}
+
+                  {/* Judge Reference Answers */}
+                  {group.referenceAnswers.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
+                        LLM Reference Answers
+                        <span className="ml-1.5 text-amber-400 font-normal">({group.referenceAnswers.length})</span>
+                      </p>
+                      {group.referenceAnswers.map((ra, i) => (
+                        <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-3.5">
+                          <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-800 mb-2">
+                            {ra.judgeModelName}
+                          </span>
+                          <div className="text-sm leading-relaxed text-amber-900 mt-1.5">{ra.answerText}</div>
                         </div>
                       ))}
                     </div>
-                  </div>
-
-                  {/* Right: result + action */}
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Result</p>
-                      <div className={`flex items-center gap-3 p-4 rounded-lg border ${isCorrect ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
-                        {isCorrect ? (
-                          <CheckCircle2 className="h-8 w-8 text-green-600 shrink-0" />
-                        ) : (
-                          <XCircle className="h-8 w-8 text-red-500 shrink-0" />
-                        )}
-                        <div>
-                          <p className={`text-lg font-bold ${isCorrect ? "text-green-700" : "text-red-700"}`}>
-                            {isCorrect ? "Correct" : "Incorrect"}
-                          </p>
-                          {!isCorrect && row.mcqCorrect && (
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              Expected <span className="font-mono font-bold">{row.mcqCorrect}</span>, got <span className="font-mono font-bold">{row.responseText}</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
+                  )}
                 </div>
               </motion.div>
             </TableCell>
