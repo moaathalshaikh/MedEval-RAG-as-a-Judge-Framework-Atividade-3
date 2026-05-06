@@ -431,6 +431,7 @@ export const GetResultsResponseItem = zod.object({
   mcqScore: zod.string().nullish(),
   referenceAnswer: zod.string().nullish(),
   referenceAnswerJudgeName: zod.string().nullish(),
+  referenceAnswers: zod.array(zod.object({ answerText: zod.string(), judgeModelName: zod.string() })).nullish(),
 });
 export const GetResultsResponse = zod.array(GetResultsResponseItem);
 

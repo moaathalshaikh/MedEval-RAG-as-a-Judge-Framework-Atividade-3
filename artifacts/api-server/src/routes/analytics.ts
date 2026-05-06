@@ -133,28 +133,40 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
   const allJudgeModels = await db.select().from(judgeModelsTable);
   const judgeMap = new Map(allJudgeModels.map((m) => [m.id, m.displayName]));
 
-  // Fetch reference answers keyed by questionId (pick the most recent per question)
+  // Fetch ALL reference answers per question (one entry per judge model)
   const questionIds = [...new Set(rows.filter((r) => r.questionId).map((r) => r.questionId))];
-  // refMap: questionId → { answerText, judgeModelId }
-  let refMap = new Map<number, { answerText: string; judgeModelId: number }>();
+  type RefEntry = { answerText: string; judgeModelId: number; confirmedModel: string | null };
+  const refAllMap = new Map<number, RefEntry[]>();
   if (questionIds.length > 0) {
     const refs = await db
       .select({
         questionId: referenceAnswersTable.questionId,
         judgeModelId: referenceAnswersTable.judgeModelId,
         answerText: referenceAnswersTable.answerText,
+        confirmedModel: referenceAnswersTable.confirmedModel,
         generatedAt: referenceAnswersTable.generatedAt,
       })
       .from(referenceAnswersTable)
       .orderBy(referenceAnswersTable.generatedAt);
-    // last-write-wins per questionId (orderBy createdAt asc → last overwrites)
     for (const ref of refs) {
-      refMap.set(ref.questionId, { answerText: ref.answerText, judgeModelId: ref.judgeModelId ?? 0 });
+      const arr = refAllMap.get(ref.questionId) ?? [];
+      // One entry per judge model — newer run replaces older
+      const idx = arr.findIndex(a => a.judgeModelId === (ref.judgeModelId ?? 0));
+      const entry: RefEntry = { answerText: ref.answerText, judgeModelId: ref.judgeModelId ?? 0, confirmedModel: ref.confirmedModel };
+      if (idx >= 0) arr[idx] = entry; else arr.push(entry);
+      refAllMap.set(ref.questionId, arr);
     }
   }
 
+  // Build a full display name: "DeepSeek · deepseek-v4-flash"
+  const buildJudgeName = (e: RefEntry): string => {
+    const dn = judgeMap.get(e.judgeModelId) ?? "Unknown";
+    return (e.confirmedModel && e.confirmedModel !== dn) ? `${dn} · ${e.confirmedModel}` : dn;
+  };
+
   res.json(rows.map((r) => {
-    const ref = refMap.get(r.questionId);
+    const refEntries = refAllMap.get(r.questionId) ?? [];
+    const first = refEntries[0];
     return {
       questionId: r.questionId,
       questionText: r.questionText,
@@ -175,8 +187,9 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
       judgeModelName: r.judgeModelId ? (judgeMap.get(r.judgeModelId) ?? null) : null,
       evaluatedAt: r.evaluatedAt?.toISOString() ?? null,
       evaluationCreatedBy: r.evaluationCreatedBy ?? null,
-      referenceAnswer: ref?.answerText ?? null,
-      referenceAnswerJudgeName: ref ? (judgeMap.get(ref.judgeModelId) ?? null) : null,
+      referenceAnswer: first?.answerText ?? null,
+      referenceAnswerJudgeName: first ? buildJudgeName(first) : null,
+      referenceAnswers: refEntries.map(e => ({ answerText: e.answerText, judgeModelName: buildJudgeName(e) })),
     };
   }));
 });

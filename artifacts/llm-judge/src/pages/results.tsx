@@ -481,17 +481,20 @@ function OpenEndedRow({
                       <p className="text-xs font-semibold text-primary uppercase tracking-wide">Model Response</p>
                       <div className="text-sm leading-relaxed bg-blue-50 border border-blue-200 rounded-lg p-3.5">{row.responseText}</div>
                     </div>
-                    {row.referenceAnswer && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">LLM Reference Answer</p>
-                          {row.referenceAnswerJudgeName && (
-                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-800">
-                              {row.referenceAnswerJudgeName}
+                    {row.referenceAnswers && row.referenceAnswers.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">
+                          LLM Reference Answers
+                          <span className="ml-1.5 text-amber-400 font-normal">({row.referenceAnswers.length})</span>
+                        </p>
+                        {row.referenceAnswers.map((ra: { answerText: string; judgeModelName: string }, i: number) => (
+                          <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-3.5">
+                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-800 mb-2">
+                              {ra.judgeModelName}
                             </span>
-                          )}
-                        </div>
-                        <div className="text-sm leading-relaxed bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-amber-900">{row.referenceAnswer}</div>
+                            <div className="text-sm leading-relaxed text-amber-900 mt-1.5">{ra.answerText}</div>
+                          </div>
+                        ))}
                       </div>
                     )}
                     {row.mustHaveScore != null && (
@@ -649,7 +652,10 @@ function MCQRow({
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Question</p>
                       <div className="text-sm leading-relaxed bg-white border border-border rounded-lg p-3.5">{row.questionText}</div>
                     </div>
-                    <div className={`grid gap-3 ${row.referenceAnswer ? "grid-cols-3" : "grid-cols-2"}`}>
+                    <div
+                      className="grid gap-3"
+                      style={{ gridTemplateColumns: `repeat(${2 + (row.referenceAnswers?.length ?? 0)}, minmax(0, 1fr))` }}
+                    >
                       <div className="space-y-1.5">
                         <p className="text-xs font-semibold text-green-600 uppercase tracking-wide">Correct Answer</p>
                         <div className="text-sm font-mono font-bold bg-green-50 border border-green-200 rounded-lg p-3.5 text-green-800 text-center text-xl">
@@ -662,21 +668,19 @@ function MCQRow({
                           {row.responseText}
                         </div>
                       </div>
-                      {row.referenceAnswer && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Judge Answer</p>
-                            {row.referenceAnswerJudgeName && (
-                              <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-1.5 py-0.5 text-xs font-medium text-amber-800 leading-none">
-                                {row.referenceAnswerJudgeName}
-                              </span>
-                            )}
+                      {(row.referenceAnswers ?? []).map((ra: { answerText: string; judgeModelName: string }, i: number) => (
+                        <div key={i} className="space-y-1.5">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Judge</p>
+                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-1.5 py-0.5 text-xs font-medium text-amber-800 leading-none max-w-full truncate">
+                              {ra.judgeModelName}
+                            </span>
                           </div>
                           <div className="text-sm font-mono font-bold bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-amber-900 text-center text-xl">
-                            {String(row.referenceAnswer ?? "").trim().slice(0, 1).toUpperCase() || "?"}
+                            {String(ra.answerText ?? "").trim().slice(0, 1).toUpperCase() || "?"}
                           </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   </div>
 
