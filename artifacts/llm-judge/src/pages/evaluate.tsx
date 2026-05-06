@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, FileText, ArrowRight, Calculator } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -137,9 +137,37 @@ export default function Evaluate() {
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [evalPromptId, setEvalPromptId] = useState<string>("system_evaluation");
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
+  const [localProgress, setLocalProgress] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: refStatus } = useRefStatus(selectedDatasetId || null, selectedJudgeId);
   const { data: questionTypes } = useDatasetQuestionTypes(selectedDatasetId);
+
+  // Animated progress + elapsed timer while evaluation is running
+  const totalForProgress = questionTypes?.total ?? refStatus?.total ?? 0;
+  useEffect(() => {
+    if (!runJudge.isPending) {
+      setLocalProgress(0);
+      setElapsedSec(0);
+      if (elapsedRef.current) clearInterval(elapsedRef.current);
+      return;
+    }
+    setLocalProgress(0);
+    setElapsedSec(0);
+    // Estimate duration: MCQ is fast (~80ms/q), open-ended needs LLM (~3s/q)
+    const perQ = isMCQOnly ? 80 : 3000;
+    const estimatedMs = Math.max(2000, totalForProgress * perQ);
+    const tickMs = 300;
+    const increment = (tickMs / estimatedMs) * totalForProgress;
+    const id = setInterval(() => {
+      setLocalProgress((p) => Math.min(p + increment, totalForProgress * 0.95));
+      setElapsedSec((s) => s + tickMs / 1000);
+    }, tickMs);
+    elapsedRef.current = id;
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runJudge.isPending]);
 
   const isMCQOnly  = !!questionTypes && questionTypes.total > 0 && !questionTypes.hasOpenEnded;
   const isMixedOrOpen = !isMCQOnly;
@@ -450,9 +478,50 @@ export default function Evaluate() {
             </Card>
           )}
 
-          {/* Run button */}
-          <Card>
-            <CardContent className="p-4 space-y-3">
+          {/* Run button + live progress */}
+          <Card className={`border-2 transition-colors ${isReady ? "border-primary/30" : "border-border"}`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold">Run Evaluation</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {isMCQOnly
+                  ? "MCQ responses are graded instantly by direct letter comparison."
+                  : "Each open-ended response is sent to the judge LLM along with the reference answer."}
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+
+              {/* Live progress — shown only while running */}
+              {runJudge.isPending && totalForProgress > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground flex items-center gap-1.5">
+                      <span className="inline-block h-2 w-2 rounded-full bg-primary animate-pulse" />
+                      Evaluating…
+                    </span>
+                    <span className="font-medium text-primary tabular-nums">
+                      ~{Math.min(Math.round(localProgress), totalForProgress)} / {totalForProgress} questions
+                    </span>
+                  </div>
+                  <Progress
+                    value={totalForProgress > 0 ? (localProgress / totalForProgress) * 100 : 0}
+                    className="h-2"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      {isMCQOnly
+                        ? <><Calculator className="h-3 w-3" /> Auto-grading…</>
+                        : <><span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-pulse" /> Calling {selectedJudge?.displayName ?? "judge model"}…</>
+                      }
+                    </span>
+                    <span className="font-mono">
+                      {Math.floor(elapsedSec / 60) > 0
+                        ? `${Math.floor(elapsedSec / 60)}m ${Math.round(elapsedSec % 60)}s`
+                        : `${Math.round(elapsedSec)}s`}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <Button
                 className="w-full h-12 gap-2 text-base"
                 onClick={handleEvaluate}
@@ -471,7 +540,7 @@ export default function Evaluate() {
                 )}
               </Button>
 
-              {!isReady && (
+              {!isReady && !runJudge.isPending && (
                 <p className="text-xs text-muted-foreground text-center">
                   {!selectedDatasetId
                     ? "Select a dataset to continue"
@@ -485,9 +554,9 @@ export default function Evaluate() {
                 </p>
               )}
 
-              {/* Result */}
+              {/* Result summary */}
               {evalResult && (
-                <div className="pt-2 space-y-3">
+                <div className="pt-1 space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
                       <CheckCircle2 className="h-5 w-5 text-green-600 shrink-0" />
