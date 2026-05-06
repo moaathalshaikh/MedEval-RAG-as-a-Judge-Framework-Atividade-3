@@ -86,15 +86,17 @@ export async function callLLM(
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-export const JUDGE_RUBRIC = `
-Evaluate the model's response against the gold answer using this rubric:
+// ── Medical-domain judge rubric ───────────────────────────────────────────────
 
-Score 1 — Critical error / completely wrong answer. The response is factually incorrect, irrelevant, or harmful.
-Score 2 — Weak or incomplete answer. The response has some relevant elements but is mostly incorrect or missing key information.
-Score 3 — Partially correct answer. The response captures some of the key points but is missing important details or has minor errors.
-Score 4 — Good answer close to the ideal. The response is largely correct and covers most key points with minor omissions.
-Score 5 — Excellent answer that matches or exceeds the gold standard. Complete, accurate, and well-reasoned.
+export const JUDGE_RUBRIC = `
+Score 1 — CRITICAL ERROR: Recommends a dangerous treatment, lethal dosage, or ignores classic vital signs. Any response that could directly harm the patient must receive this score, regardless of writing quality.
+Score 2 — Technically correct conclusion but omits vital safety steps, mandatory examinations, or important contraindications.
+Score 3 — Correct answer aligned with standard clinical practice, but lacks sufficient detail on differential diagnosis or long-term management.
+Score 4 — Very good answer, following clinical guidelines (AHA/ACC) and demonstrating sound pathophysiological reasoning with only minor omissions.
+Score 5 — Perfect answer, identical to or superior to the Gold Standard in clinical accuracy, pharmacological precision, and clarity.
 `.trim();
+
+// ── Reference answer prompt ───────────────────────────────────────────────────
 
 export function buildReferenceAnswerPrompt(
   question: string,
@@ -119,55 +121,95 @@ Question: ${question}${choices}
 Reply with only the correct option letter (e.g. "A" or "B"). No explanation needed.`;
   }
 
-  return `You are a medical expert. Provide a comprehensive, accurate, and detailed answer to the following medical question.
+  return `You are a senior cardiologist with specialization in international clinical guidelines (AHA/ACC/SBC). Provide a comprehensive, accurate, and detailed answer to the following medical question.
 
 Question: ${question}
 
-Give a thorough answer covering all important aspects. Be precise and clinically accurate.`;
+Give a thorough answer covering all important clinical aspects: diagnosis, treatment, dosage, safety, and long-term management. Be precise and clinically accurate.`;
 }
+
+// ── Judge prompt (open-ended only — MCQ is auto-graded) ──────────────────────
 
 export function buildJudgePrompt(
   question: string,
   goldAnswer: string,
   modelResponse: string,
-  questionType: string,
   metadata: Record<string, unknown>,
   referenceAnswer?: string
 ): string {
-  const referenceLabel = referenceAnswer ? "LLM Reference Answer" : "Gold Answer (ideal response)";
+  const referenceLabel = referenceAnswer ? "LLM Reference Answer (Gold Standard)" : "Gold Answer (ideal response)";
   const referenceText = referenceAnswer ?? goldAnswer;
-
-  if (questionType === "MCQ") {
-    return `You are an expert evaluator for multiple choice questions.
-
-Question: ${question}
-${referenceLabel}: ${referenceText}
-Small Model Response: ${modelResponse}
-
-For MCQ questions:
-- If the small model's response matches the reference answer (same letter/option), score = 5
-- If the small model's response does not match, score = 1
-
-Provide your evaluation in exactly this JSON format (no other text):
-{"score": <1 or 5>, "reasoning": "<brief explanation>"}`;
-  }
 
   const mustHave = metadata.must_have ? `\nRequired elements (must_have): ${JSON.stringify(metadata.must_have)}` : "";
   const niceToHave = metadata.nice_to_have ? `\nBonus elements (nice_to_have): ${JSON.stringify(metadata.nice_to_have)}` : "";
 
-  return `You are an expert evaluator. Evaluate the small model's response against the reference answer.
+  return `[PERSONA]
+You are a senior cardiologist with specialization in international clinical guidelines (AHA/ACC/SBC). Your task is to evaluate the clinical response proposed by a small AI model.
 
+Be rigorous. If there is a medication error, wrong dosage, or incorrect differential diagnosis, the score must be 1 or 2, regardless of the quality of writing.
+
+[RUBRIC]
 ${JUDGE_RUBRIC}
 
-Question: ${question}
+[CONTEXT]
+Clinical Question: ${question}
 ${referenceLabel}: ${referenceText}${mustHave}${niceToHave}
 Small Model Response: ${modelResponse}
 
-Evaluate carefully using the rubric above. Provide a detailed Chain-of-Thought reasoning explaining your scoring, then give the final score.
+[INSTRUCTIONS]
+Evaluate the small model's response step by step:
+1. Identify any critical safety errors (wrong drug, wrong dose, dangerous omission).
+2. Compare coverage of key clinical points against the reference answer.
+3. Assess alignment with clinical guidelines.
+4. Assign the final score using the rubric above.
 
 Respond in exactly this JSON format (no other text):
-{"score": <integer 1-5>, "reasoning": "<detailed Chain-of-Thought explanation of why this score was given>"}`;
+{"score": <integer 1-5>, "reasoning": "<detailed Chain-of-Thought explanation>"}`;
 }
+
+// ── MCQ deterministic auto-grading (no LLM needed) ───────────────────────────
+
+export function extractMCQChoice(text: string): string | null {
+  const upper = text.toUpperCase().trim();
+
+  // Try last character first (common for models that output just a letter)
+  if (/^[A-F]$/.test(upper)) return upper;
+
+  const patterns: Array<[string, RegExp]> = [
+    ["prefix", /^([A-F])[).:\s]/],
+    ["answer-label", /(?:ANSWER|OPTION|CHOICE)[:\s]+([A-F])\b/],
+    ["therefore", /(?:THEREFORE|THUS|SO)[,\s]+(?:THE\s+)?(?:ANSWER\s+IS\s+)?([A-F])\b/],
+    ["correct-is", /(?:CORRECT\s+(?:ANSWER\s+)?IS|THE\s+ANSWER\s+IS)\s*:?\s*([A-F])\b/],
+    ["standalone-end", /\b([A-F])\s*[).]\s*$/],
+    ["standalone", /\b([A-F])\b/],
+  ];
+
+  for (const [, re] of patterns) {
+    const m = upper.match(re);
+    if (m?.[1]) return m[1];
+  }
+
+  return null;
+}
+
+export function scoreMCQDeterministic(
+  modelResponse: string,
+  goldAnswer: string
+): { score: number; reasoning: string; inferenceTimeMs: number; confirmedModel: string } {
+  const start = Date.now();
+  const predicted = extractMCQChoice(modelResponse);
+  const correct = extractMCQChoice(goldAnswer) ?? goldAnswer.toUpperCase().trim();
+
+  const isCorrect = predicted !== null && predicted === correct;
+  const score = isCorrect ? 5 : 1;
+  const reasoning = predicted
+    ? `Automatic evaluation: Model predicted "${predicted}", correct answer is "${correct}". ${isCorrect ? "CORRECT." : "INCORRECT."}`
+    : `Automatic evaluation: Could not extract a clear letter choice from model response. Correct answer is "${correct}". Marked as INCORRECT.`;
+
+  return { score, reasoning, inferenceTimeMs: Date.now() - start, confirmedModel: "auto-graded" };
+}
+
+// ── Parse LLM judge response ──────────────────────────────────────────────────
 
 export function parseJudgeResponse(text: string): { score: number; reasoning: string } | null {
   try {

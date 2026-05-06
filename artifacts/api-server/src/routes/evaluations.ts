@@ -7,7 +7,7 @@ import {
   GetEvaluationParams,
   ListEvaluationsQueryParams,
 } from "@workspace/api-zod";
-import { callLLM, buildJudgePrompt, parseJudgeResponse, type LLMProvider } from "../lib/llm";
+import { callLLM, buildJudgePrompt, parseJudgeResponse, scoreMCQDeterministic, type LLMProvider } from "../lib/llm";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -175,17 +175,22 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
     responseRows = allResponses as typeof responseRows;
   }
 
-  // Get user's API key for the provider
+  // Check whether any open-ended questions exist (only those require the LLM/API key)
+  const hasOpenEnded = responseRows.some((r) => r.question?.questionType === "OPEN_ENDED");
+
   const keyMap: Record<string, string> = {
     OpenAI: "openai_api_key",
     Gemini: "gemini_api_key",
     Claude: "claude_api_key",
     DeepSeek: "deepseek_api_key",
   };
-  const apiKey = await getUserSetting(uid, keyMap[judgeModel.provider] ?? "");
-  if (!apiKey) {
-    res.status(400).json({ error: `${judgeModel.provider} API key not configured in your settings.` });
-    return;
+  let apiKey: string | null = null;
+  if (hasOpenEnded) {
+    apiKey = await getUserSetting(uid, keyMap[judgeModel.provider] ?? "");
+    if (!apiKey) {
+      res.status(400).json({ error: `${judgeModel.provider} API key not configured in your settings. Required for open-ended question evaluation.` });
+      return;
+    }
   }
 
   // Pre-fetch all reference answers if needed (bulk fetch for performance)
@@ -217,20 +222,41 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
       continue;
     }
 
-    const referenceAnswer = useReferenceAnswers ? refAnswerMap.get(question.id) : undefined;
-
-    if (useReferenceAnswers && !referenceAnswer) {
-      skipped++;
-      errors.push(`Response ${response.id}: no reference answer for question ${question.id} — run Step 1 first`);
-      continue;
-    }
-
     try {
+      // ── MCQ: deterministic auto-grading — no LLM call needed ──────────────
+      if (question.questionType === "MCQ") {
+        const { score, reasoning, confirmedModel } = scoreMCQDeterministic(
+          response.responseText,
+          question.goldAnswer
+        );
+
+        await db.insert(judgeEvaluationsTable).values({
+          responseId: response.id,
+          judgeModelId: resolvedJudgeModelId!,
+          score,
+          reasoning,
+          judgeModelVersion: "auto-graded",
+          confirmedModel,
+          createdBy: uid,
+        });
+
+        evaluated++;
+        continue;
+      }
+
+      // ── Open-ended: LLM-as-a-Judge ────────────────────────────────────────
+      const referenceAnswer = useReferenceAnswers ? refAnswerMap.get(question.id) : undefined;
+
+      if (useReferenceAnswers && !referenceAnswer) {
+        skipped++;
+        errors.push(`Response ${response.id}: no reference answer for question ${question.id} — run Step 1 first`);
+        continue;
+      }
+
       const prompt = buildJudgePrompt(
         question.questionText,
         question.goldAnswer,
         response.responseText,
-        question.questionType,
         (question.metadata as Record<string, unknown>) ?? {},
         referenceAnswer
       );
@@ -239,7 +265,7 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
         judgeModel.provider as LLMProvider,
         resolvedModelVersion!,
         prompt,
-        apiKey
+        apiKey!
       );
 
       const result = parseJudgeResponse(text);
