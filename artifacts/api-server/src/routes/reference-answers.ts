@@ -59,13 +59,10 @@ router.get("/reference-answers/status", async (req: Request, res: Response): Pro
     judgeModelId = parseInt(judgeModelIdStr);
   }
 
-  // Only count open-ended questions — MCQ is graded deterministically
+  // Count all question types — MCQ gets a single-letter judge answer, open-ended gets a full reference
   const questions = await db.select({ id: questionsTable.id })
     .from(questionsTable)
-    .where(and(
-      eq(questionsTable.datasetId, datasetId),
-      eq(questionsTable.questionType, "OPEN_ENDED")
-    ));
+    .where(eq(questionsTable.datasetId, datasetId));
   const total = questions.length;
 
   if (total === 0) {
@@ -142,25 +139,18 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
       return;
     }
 
-    // Fetch only OPEN_ENDED questions — MCQ is graded deterministically, no LLM reference needed
+    // Fetch all question types — MCQ uses a single-letter prompt, open-ended uses full reference
     let questions: typeof questionsTable.$inferSelect[] = [];
     if (specificIds && specificIds.length > 0) {
       questions = await db.select().from(questionsTable)
-        .where(and(
-          eq(questionsTable.datasetId, datasetId),
-          inArray(questionsTable.id, specificIds),
-          eq(questionsTable.questionType, "OPEN_ENDED")
-        ));
+        .where(and(eq(questionsTable.datasetId, datasetId), inArray(questionsTable.id, specificIds)));
     } else {
       questions = await db.select().from(questionsTable)
-        .where(and(
-          eq(questionsTable.datasetId, datasetId),
-          eq(questionsTable.questionType, "OPEN_ENDED")
-        ));
+        .where(eq(questionsTable.datasetId, datasetId));
     }
 
     if (questions.length === 0) {
-      res.json({ generated: 0, skipped: 0, errors: ["No open-ended questions found in dataset"] });
+      res.json({ generated: 0, skipped: 0, errors: ["No questions found in dataset"] });
       return;
     }
 
