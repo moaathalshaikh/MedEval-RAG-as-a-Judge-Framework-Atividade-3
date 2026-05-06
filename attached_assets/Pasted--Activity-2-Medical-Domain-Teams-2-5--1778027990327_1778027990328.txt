@@ -1,0 +1,101 @@
+# Activity 2 — Medical Domain (Teams 2 & 5) — ملخص المطلوب
+
+## 🎯 الهدف العام
+
+تقييم إجابات النماذج اللغوية الصغيرة (من Activity 1) باستخدام نموذج أكبر كـ **"قاضٍ ذكاء اصطناعي"**، وتخزين كل شيء في قاعدة بيانات PostgreSQL لتحليلها إحصائياً.
+
+---
+
+## 📦 البيانات المستخدمة (Medical Domain)
+
+| النوع | Dataset |
+|-------|---------|
+| أسئلة مفتوحة | **K-QA** (Itay Manes) |
+| أسئلة MCQ | **USMLE** مع الإجابات الرسمية |
+
+هذه نفس datasets Activity 1 — لا يوجد جديد هنا.
+
+---
+
+## 🔢 الخطوات المطلوبة
+
+### 1. Consolidation — تجميع البيانات
+أخذ الأسئلة + إجابات النماذج الثلاثة من Activity 1 (BioMistral, Mistral, Qwen) وتنظيمها.
+
+### 2. PostgreSQL Database
+إنشاء قاعدة بيانات بـ 5 جداول:
+
+```
+modelos       ← أسماء النماذج (المرشحة + القاضي)
+datasets      ← K-QA و USMLE
+perguntas     ← الأسئلة + الإجابات الرسمية (Gold Standard)
+respostas_atividade_1  ← إجابات النماذج من Activity 1
+avaliacoes_juiz        ← تقييمات القاضي (نوتة 1-5 + Chain-of-Thought)
+```
+
+### 3. LLM-as-a-Judge Pipeline
+تشغيل نموذج **أقوى** من النماذج التي استخدمتوها (مثلاً GPT-4o أو Llama-3-70B) كقاضٍ يقيّم كل إجابة بالـ prompt التالي:
+
+```
+[PERSONA] طبيب كبير متخصص في الإرشادات السريرية (AHA/SBC)
+
+[CONTEXT]
+- السؤال الطبي
+- Gold Standard (الإجابة الرسمية)
+- إجابة النموذج
+
+[RUBRIC]
+Nota 1: خطأ قاتل (جرعة خاطئة / تشخيص خطير)
+Nota 2: صحيح جزئياً لكن يفتقد خطوات أمان
+Nota 3: صحيح لكن ناقص التفاصيل
+Nota 4: جيد جداً + reasoning فيزيوباثولوجي
+Nota 5: مطابق أو أفضل من Gold Standard
+
+OUTPUT FORMAT:
+REASONING: <التبرير>
+SCORE: <1-5>
+```
+
+> ⚠️ **مهم:** الـ prompt بالإنجليزي للطب لأن النماذج مدرّبة علمياً بالإنجليزي.
+
+### 4. Spearman Correlation
+مقارنة نوتة القاضي مع الإجابة الرسمية إحصائياً:
+
+```python
+from scipy.stats import spearmanr
+correlation, p_value = spearmanr(df['nota_humana'], df['nota_atribuida'])
+```
+
+- **ρ ≥ 0.7** → القاضي موثوق
+- **ρ 0.3–0.6** → الـ rubric تحتاج تحسين
+- **ρ < 0.3** → القاضي غير موثوق (نتيجة علمية مثيرة تستحق تحليلاً)
+
+---
+
+## 📬 المطلوب تسليمه (14 مايو، الساعة 12:00)
+
+| Artefato | التفاصيل |
+|----------|----------|
+| **GitHub** | مجلد `Atividade_2/` يحتوي scripts Python + prompts + ملف `.sql` |
+| **PDF Tutorial** | شرح كيفية restore قاعدة البيانات + أمثلة SQL queries |
+| **Video** | 10–20 دقيقة، كل عضو يشرح جزءه (DB أو Judge calibration) |
+
+---
+
+## ⚖️ توزيع الدرجات
+
+| المعيار | الوزن |
+|---------|-------|
+| PostgreSQL schema + restore | 30% |
+| تصميم الـ Rubric | 20% |
+| Pipeline الكامل | 25% |
+| التحليل الإحصائي | 15% |
+| الفيديو والتوثيق | 10% |
+
+---
+
+## 💡 خلاصة بكلمة واحدة
+
+خذ إجابات Activity 1 → قيّمها بنموذج أقوى كقاضٍ → احفظ كل شيء في PostgreSQL → احسب Spearman correlation → وثّق كل شيء.
+
+هل تريد أن نبدأ بتصميم الـ pipeline أو قاعدة البيانات؟
