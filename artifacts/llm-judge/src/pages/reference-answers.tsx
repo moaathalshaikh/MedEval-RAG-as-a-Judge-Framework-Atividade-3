@@ -103,12 +103,25 @@ export default function ReferenceAnswers() {
     selectedJudgeId
   );
 
-  // Poll status every 2 s while generating to show live progress
+  // Animated local progress counter while generating
+  const [localProgress, setLocalProgress] = React.useState(0);
+  const totalQuestions = refStatus?.total ?? 0;
+
   React.useEffect(() => {
-    if (!generateRef.isPending) return;
-    const id = setInterval(() => { refetchStatus(); }, 2000);
+    if (!generateRef.isPending) {
+      setLocalProgress(0);
+      return;
+    }
+    setLocalProgress(0);
+    // concurrency = 4, ~3 s per question → estimated total time
+    const estimatedMs = Math.max(6000, (totalQuestions / 4) * 3000);
+    const tickMs = 250;
+    const increment = (tickMs / estimatedMs) * totalQuestions;
+    const id = setInterval(() => {
+      setLocalProgress((prev) => Math.min(prev + increment, totalQuestions * 0.95));
+    }, tickMs);
     return () => clearInterval(id);
-  }, [generateRef.isPending, refetchStatus]);
+  }, [generateRef.isPending, totalQuestions]);
 
   const refComplete = refStatus ? refStatus.covered >= refStatus.total && refStatus.total > 0 : false;
   const refProgress = refStatus && refStatus.total > 0
@@ -278,22 +291,41 @@ export default function ReferenceAnswers() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Status bar */}
+              {/* Status bar — shows animated progress while generating, coverage otherwise */}
               {selectedDatasetId && selectedJudgeId && refStatus && refStatus.total > 0 && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Coverage</span>
-                    <span className={`font-medium ${refComplete ? "text-green-600" : "text-foreground"}`}>
-                      {refStatus.covered} / {refStatus.total} questions
-                    </span>
-                  </div>
-                  <Progress value={refProgress} className="h-2" />
-                  {refComplete && (
-                    <p className="text-xs text-green-600 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> All questions covered — ready for evaluation
+                generateRef.isPending ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Generating…</span>
+                      <span className="font-medium text-blue-600">
+                        ~{Math.min(Math.round(localProgress), refStatus.total)} / {refStatus.total} questions
+                      </span>
+                    </div>
+                    <Progress
+                      value={refStatus.total > 0 ? (localProgress / refStatus.total) * 100 : 0}
+                      className="h-2"
+                    />
+                    <p className="text-xs text-blue-600 flex items-center gap-1.5">
+                      <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                      Calling {selectedJudge?.displayName}{selectedJudge?.modelVersion ? ` · ${selectedJudge.modelVersion}` : ""}…
                     </p>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Coverage</span>
+                      <span className={`font-medium ${refComplete ? "text-green-600" : "text-foreground"}`}>
+                        {refStatus.covered} / {refStatus.total} questions
+                      </span>
+                    </div>
+                    <Progress value={refProgress} className="h-2" />
+                    {refComplete && (
+                      <p className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" /> All questions covered — ready for evaluation
+                      </p>
+                    )}
+                  </div>
+                )
               )}
 
               <Button
