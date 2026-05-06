@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MedEval Judge — Database Schema</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f4f8; padding: 32px; }
+  h1 { text-align: center; color: #1a2e1a; margin-bottom: 8px; font-size: 22px; }
+  .subtitle { text-align: center; color: #6b7280; font-size: 13px; margin-bottom: 32px; }
+
+  .erd { display: flex; flex-direction: column; gap: 24px; }
+  .row { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+
+  .table-box {
+    background: #fff;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    min-width: 220px;
+    max-width: 280px;
+    flex: 1;
+  }
+  .table-header {
+    padding: 10px 14px;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .table-header .icon { font-size: 15px; }
+  .table-body { padding: 0; }
+  .col-row {
+    display: flex;
+    align-items: center;
+    padding: 6px 14px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 12px;
+    gap: 6px;
+  }
+  .col-row:last-child { border-bottom: none; }
+  .col-name { flex: 1; color: #1f2937; font-weight: 500; }
+  .col-type { color: #9ca3af; font-size: 11px; font-family: monospace; }
+  .badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .pk { background: #fef3c7; color: #92400e; }
+  .fk { background: #dbeafe; color: #1e40af; }
+  .uq { background: #f3e8ff; color: #6d28d9; }
+
+  /* colour themes per table group */
+  .auth   .table-header { background: #64748b; color: #fff; }
+  .core   .table-header { background: #16a34a; color: #fff; }
+  .resp   .table-header { background: #0891b2; color: #fff; }
+  .judge  .table-header { background: #7c3aed; color: #fff; }
+  .meta   .table-header { background: #ea580c; color: #fff; }
+
+  .legend { display: flex; gap: 16px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #374151; }
+
+  .relations {
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin-top: 8px;
+  }
+  .relations h3 { font-size: 13px; color: #374151; margin-bottom: 14px; text-transform: uppercase; letter-spacing: .5px; }
+  .rel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+  .rel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #374151;
+    padding: 5px 10px;
+    background: #f9fafb;
+    border-radius: 6px;
+  }
+  .rel-from { font-weight: 600; color: #16a34a; }
+  .rel-to { font-weight: 600; color: #7c3aed; }
+  .arrow { color: #9ca3af; font-size: 15px; }
+  .cascade { font-size: 10px; color: #ef4444; background: #fee2e2; padding: 1px 5px; border-radius: 4px; margin-left: 4px; }
+  .setnull { font-size: 10px; color: #f59e0b; background: #fef3c7; padding: 1px 5px; border-radius: 4px; margin-left: 4px; }
+</style>
+</head>
+<body>
+<h1>🗄️ MedEval Judge — Database Schema</h1>
+<p class="subtitle">11 tables · PostgreSQL · Drizzle ORM</p>
+
+<div class="legend">
+  <div class="legend-item"><span class="badge pk">PK</span> Primary Key</div>
+  <div class="legend-item"><span class="badge fk">FK</span> Foreign Key</div>
+  <div class="legend-item"><span class="badge uq">UQ</span> Unique</div>
+</div>
+
+<div class="erd">
+
+  <!-- Row 1: Auth layer -->
+  <div class="row">
+    <div class="table-box auth">
+      <div class="table-header"><span class="icon">👤</span> users</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id</span><span class="col-type">varchar</span></div>
+        <div class="col-row"><span class="badge uq">UQ</span><span class="col-name">email</span><span class="col-type">varchar</span></div>
+        <div class="col-row"><span class="col-name">first_name</span><span class="col-type">varchar</span></div>
+        <div class="col-row"><span class="col-name">last_name</span><span class="col-type">varchar</span></div>
+        <div class="col-row"><span class="col-name">profile_image_url</span><span class="col-type">varchar</span></div>
+        <div class="col-row"><span class="col-name">created_at</span><span class="col-type">timestamptz</span></div>
+        <div class="col-row"><span class="col-name">updated_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+
+    <div class="table-box auth">
+      <div class="table-header"><span class="icon">🔐</span> sessions</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">sid</span><span class="col-type">varchar</span></div>
+        <div class="col-row"><span class="col-name">sess</span><span class="col-type">jsonb</span></div>
+        <div class="col-row"><span class="col-name">expire</span><span class="col-type">timestamp</span></div>
+      </div>
+    </div>
+
+    <div class="table-box meta">
+      <div class="table-header"><span class="icon">⚙️</span> settings</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">user_id</span><span class="col-type">text → users</span></div>
+        <div class="col-row"><span class="badge uq">UQ</span><span class="col-name">key</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">value</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">updated_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: Core data -->
+  <div class="row">
+    <div class="table-box core">
+      <div class="table-header"><span class="icon">🤖</span> models</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id_model</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="col-name">model_name</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">model_size</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">model_type</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">notes</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">text → users</span></div>
+        <div class="col-row"><span class="col-name">created_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+
+    <div class="table-box core">
+      <div class="table-header"><span class="icon">📦</span> datasets</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id_dataset</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="col-name">dataset_name</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">domain</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">dataset_type</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">text → users</span></div>
+        <div class="col-row"><span class="col-name">created_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+
+    <div class="table-box judge">
+      <div class="table-header"><span class="icon">⚖️</span> judge_models</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id_judge_model</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="col-name">provider</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">display_name</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">model_version</span><span class="col-type">text</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: Questions -->
+  <div class="row">
+    <div class="table-box core" style="max-width:340px">
+      <div class="table-header"><span class="icon">❓</span> questions</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id_question</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">id_dataset</span><span class="col-type">int → datasets 🗑️</span></div>
+        <div class="col-row"><span class="col-name">question_text</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">gold_answer</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">question_type</span><span class="col-type">text (MCQ / OPEN_ENDED)</span></div>
+        <div class="col-row"><span class="col-name">metadata</span><span class="col-type">jsonb (must_have, choices…)</span></div>
+        <div class="col-row"><span class="col-name">created_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 4: Responses + Reference Answers -->
+  <div class="row">
+    <div class="table-box resp" style="max-width:320px">
+      <div class="table-header"><span class="icon">💬</span> model_responses</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id_response</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">id_question</span><span class="col-type">int → questions 🗑️</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">id_model</span><span class="col-type">int → models 🗑️</span></div>
+        <div class="col-row"><span class="badge uq">UQ</span><span class="col-name">(id_question, id_model)</span></div>
+        <div class="col-row"><span class="col-name">response_text</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">inference_time_ms</span><span class="col-type">int</span></div>
+        <div class="col-row"><span class="col-name">must_have_score</span><span class="col-type">real (open-ended)</span></div>
+        <div class="col-row"><span class="col-name">mcq_correct</span><span class="col-type">text (MCQ)</span></div>
+        <div class="col-row"><span class="col-name">mcq_score</span><span class="col-type">text (MCQ)</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">text → users</span></div>
+        <div class="col-row"><span class="col-name">created_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+
+    <div class="table-box judge" style="max-width:300px">
+      <div class="table-header"><span class="icon">📋</span> reference_answers</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">question_id</span><span class="col-type">int → questions 🗑️</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">judge_model_id</span><span class="col-type">int → judge_models 🗑️</span></div>
+        <div class="col-row"><span class="badge uq">UQ</span><span class="col-name">(question_id, judge_model_id)</span></div>
+        <div class="col-row"><span class="col-name">answer_text</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">model_version</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">confirmed_model</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">text → users</span></div>
+        <div class="col-row"><span class="col-name">generated_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 5: Evaluations + Activity -->
+  <div class="row">
+    <div class="table-box judge" style="max-width:320px">
+      <div class="table-header"><span class="icon">🏆</span> judge_evaluations</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id_evaluation</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">id_response</span><span class="col-type">int → model_responses 🗑️</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">judge_model_id</span><span class="col-type">int → judge_models 🗑️</span></div>
+        <div class="col-row"><span class="col-name">score</span><span class="col-type">int (1–5)</span></div>
+        <div class="col-row"><span class="col-name">reasoning</span><span class="col-type">text (Chain-of-Thought)</span></div>
+        <div class="col-row"><span class="col-name">judge_model_version</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">confirmed_model</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="badge fk">FK</span><span class="col-name">created_by</span><span class="col-type">text → users</span></div>
+        <div class="col-row"><span class="col-name">evaluated_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+
+    <div class="table-box meta" style="max-width:280px">
+      <div class="table-header"><span class="icon">📜</span> activity_log</div>
+      <div class="table-body">
+        <div class="col-row"><span class="badge pk">PK</span><span class="col-name">id</span><span class="col-type">serial</span></div>
+        <div class="col-row"><span class="col-name">action</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">entity_type</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">entity_name</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">user_id</span><span class="col-type">text (no FK)</span></div>
+        <div class="col-row"><span class="col-name">user_email</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">user_name</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">details</span><span class="col-type">text</span></div>
+        <div class="col-row"><span class="col-name">created_at</span><span class="col-type">timestamptz</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Relations summary -->
+  <div class="relations">
+    <h3>🔗 Foreign Key Relationships</h3>
+    <div class="rel-grid">
+      <div class="rel-row"><span class="rel-from">settings.user_id</span><span class="arrow">→</span><span class="rel-to">users.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">models.created_by</span><span class="arrow">→</span><span class="rel-to">users.id</span><span class="setnull">SET NULL</span></div>
+      <div class="rel-row"><span class="rel-from">datasets.created_by</span><span class="arrow">→</span><span class="rel-to">users.id</span><span class="setnull">SET NULL</span></div>
+      <div class="rel-row"><span class="rel-from">questions.id_dataset</span><span class="arrow">→</span><span class="rel-to">datasets.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">model_responses.id_question</span><span class="arrow">→</span><span class="rel-to">questions.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">model_responses.id_model</span><span class="arrow">→</span><span class="rel-to">models.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">model_responses.created_by</span><span class="arrow">→</span><span class="rel-to">users.id</span><span class="setnull">SET NULL</span></div>
+      <div class="rel-row"><span class="rel-from">reference_answers.question_id</span><span class="arrow">→</span><span class="rel-to">questions.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">reference_answers.judge_model_id</span><span class="arrow">→</span><span class="rel-to">judge_models.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">reference_answers.created_by</span><span class="arrow">→</span><span class="rel-to">users.id</span><span class="setnull">SET NULL</span></div>
+      <div class="rel-row"><span class="rel-from">judge_evaluations.id_response</span><span class="arrow">→</span><span class="rel-to">model_responses.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">judge_evaluations.judge_model_id</span><span class="arrow">→</span><span class="rel-to">judge_models.id</span><span class="cascade">CASCADE</span></div>
+      <div class="rel-row"><span class="rel-from">judge_evaluations.created_by</span><span class="arrow">→</span><span class="rel-to">users.id</span><span class="setnull">SET NULL</span></div>
+    </div>
+    <p style="font-size:11px;color:#9ca3af;margin-top:12px;">🗑️ CASCADE = deleting parent deletes all children &nbsp;|&nbsp; SET NULL = deleting user keeps the data, clears ownership</p>
+  </div>
+
+</div>
+</body>
+</html>
