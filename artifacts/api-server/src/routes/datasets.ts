@@ -233,6 +233,7 @@ router.post("/datasets/upload", async (req: Request, res: Response): Promise<voi
             obj.answer ?? "";
 
           const questionType =
+            dataset.datasetType === "MCQ" ? "MCQ" :
             (obj.questionType ?? obj.question_type ?? "OPEN_ENDED").toUpperCase() === "MCQ"
               ? "MCQ" : "OPEN_ENDED";
 
@@ -267,8 +268,9 @@ router.post("/datasets/upload", async (req: Request, res: Response): Promise<voi
       const headers = parseCSVLine(lines[0]);
 
       const isMCQFormat =
-        headers.some((h) => h === "Question_text") &&
-        headers.some((h) => /^\([A-Fa-f]\)$/.test(h));
+        (headers.some((h) => h === "Question_text") &&
+         headers.some((h) => /^\([A-Fa-f]\)$/.test(h))) ||
+        dataset.datasetType === "MCQ";
 
       const hasAnswerCol = headers.includes("Correct_answer");
 
@@ -280,7 +282,7 @@ router.post("/datasets/upload", async (req: Request, res: Response): Promise<voi
 
           let questionText = "";
           let goldAnswer = "";
-          let questionType = "OPEN_ENDED";
+          let questionType = dataset.datasetType === "MCQ" ? "MCQ" : "OPEN_ENDED";
           const metadata: Record<string, unknown> = {};
 
           if (isMCQFormat) {
