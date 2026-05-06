@@ -1,8 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, inArray, sql } from "drizzle-orm";
-import { db, referenceAnswersTable, questionsTable, judgeModelsTable, judgeEvaluationsTable, settingsTable } from "@workspace/db";
+import { db, referenceAnswersTable, questionsTable, judgeModelsTable, judgeEvaluationsTable, settingsTable, datasetsTable } from "@workspace/db";
 import { callLLM, buildReferenceAnswerPrompt, type LLMProvider } from "../lib/llm";
 import { logger } from "../lib/logger";
+import { logActivity } from "../lib/activity";
 
 const router: IRouter = Router();
 
@@ -205,6 +206,17 @@ router.post("/reference-answers/generate", async (req: Request, res: Response): 
     });
 
     await pLimit(tasks, 4);
+
+    // Fetch dataset name for logging
+    const [dataset] = await db.select({ datasetName: datasetsTable.datasetName })
+      .from(datasetsTable).where(eq(datasetsTable.id, datasetId));
+
+    await logActivity(req, {
+      action: "GEN_REFERENCE",
+      entityType: "reference",
+      entityName: judgeModel.displayName,
+      details: `Generated ${generated} reference answers using "${judgeModel.displayName} · ${modelVersion}" on dataset "${dataset?.datasetName ?? datasetId}" (${skipped} failed)`,
+    });
 
     res.json({ generated, skipped, errors });
 
