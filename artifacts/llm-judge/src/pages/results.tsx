@@ -483,7 +483,14 @@ function OpenEndedRow({
                     </div>
                     {row.referenceAnswer && (
                       <div className="space-y-1.5">
-                        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">LLM Reference Answer</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">LLM Reference Answer</p>
+                          {row.referenceAnswerJudgeName && (
+                            <span className="inline-flex items-center rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-800">
+                              {row.referenceAnswerJudgeName}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-sm leading-relaxed bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-amber-900">{row.referenceAnswer}</div>
                       </div>
                     )}

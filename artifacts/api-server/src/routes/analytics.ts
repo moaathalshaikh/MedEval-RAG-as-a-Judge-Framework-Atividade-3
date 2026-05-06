@@ -133,24 +133,28 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
   const allJudgeModels = await db.select().from(judgeModelsTable);
   const judgeMap = new Map(allJudgeModels.map((m) => [m.id, m.displayName]));
 
-  // Fetch reference answers for questions that have responses
+  // Fetch reference answers keyed by questionId (pick the most recent per question)
   const questionIds = [...new Set(rows.filter((r) => r.questionId).map((r) => r.questionId))];
-  let refMap = new Map<string, string>(); // key: `${questionId}_${judgeModelId}`
+  // refMap: questionId → { answerText, judgeModelId }
+  let refMap = new Map<number, { answerText: string; judgeModelId: number }>();
   if (questionIds.length > 0) {
     const refs = await db
       .select({
         questionId: referenceAnswersTable.questionId,
         judgeModelId: referenceAnswersTable.judgeModelId,
         answerText: referenceAnswersTable.answerText,
+        createdAt: referenceAnswersTable.createdAt,
       })
-      .from(referenceAnswersTable);
+      .from(referenceAnswersTable)
+      .orderBy(referenceAnswersTable.createdAt);
+    // last-write-wins per questionId (orderBy createdAt asc → last overwrites)
     for (const ref of refs) {
-      refMap.set(`${ref.questionId}_${ref.judgeModelId}`, ref.answerText);
+      refMap.set(ref.questionId, { answerText: ref.answerText, judgeModelId: ref.judgeModelId });
     }
   }
 
   res.json(rows.map((r) => {
-    const refKey = r.judgeModelId ? `${r.questionId}_${r.judgeModelId}` : null;
+    const ref = refMap.get(r.questionId);
     return {
       questionId: r.questionId,
       questionText: r.questionText,
@@ -171,7 +175,8 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
       judgeModelName: r.judgeModelId ? (judgeMap.get(r.judgeModelId) ?? null) : null,
       evaluatedAt: r.evaluatedAt?.toISOString() ?? null,
       evaluationCreatedBy: r.evaluationCreatedBy ?? null,
-      referenceAnswer: refKey ? (refMap.get(refKey) ?? null) : null,
+      referenceAnswer: ref?.answerText ?? null,
+      referenceAnswerJudgeName: ref ? (judgeMap.get(ref.judgeModelId) ?? null) : null,
     };
   }));
 });

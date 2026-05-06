@@ -430,6 +430,7 @@ export const GetResultsResponseItem = zod.object({
   mcqCorrect: zod.string().nullish(),
   mcqScore: zod.string().nullish(),
   referenceAnswer: zod.string().nullish(),
+  referenceAnswerJudgeName: zod.string().nullish(),
 });
 export const GetResultsResponse = zod.array(GetResultsResponseItem);
 
