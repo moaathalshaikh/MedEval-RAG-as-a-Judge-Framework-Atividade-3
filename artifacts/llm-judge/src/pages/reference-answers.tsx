@@ -174,6 +174,9 @@ export default function ReferenceAnswers() {
     setToQRaw(null);
   }, [selectedDatasetId]);
 
+  const datasetHasMCQ = allQuestions ? allQuestions.some((q) => q.questionType === "MCQ") : true;
+  const datasetHasOpen = allQuestions ? allQuestions.some((q) => q.questionType === "OPEN_ENDED") : true;
+
   const totalQs = allQuestions?.length ?? refStatus?.total ?? 0;
   const effectiveFrom = Math.max(1, Math.min(fromQ, Math.max(1, totalQs)));
   const effectiveTo = toQRaw !== null
@@ -360,9 +363,14 @@ export default function ReferenceAnswers() {
             </CardHeader>
             <CardContent className="space-y-3">
               {/* MCQ Prompt */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">MCQ Questions Prompt</Label>
-                <Select value={mcqPromptId} onValueChange={setMcqPromptId}>
+              <div className={`space-y-1.5 transition-opacity ${!datasetHasMCQ ? "opacity-40 pointer-events-none" : ""}`}>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">MCQ Questions Prompt</Label>
+                  {!datasetHasMCQ && selectedDatasetId && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Not in dataset</span>
+                  )}
+                </div>
+                <Select value={mcqPromptId} onValueChange={setMcqPromptId} disabled={!datasetHasMCQ}>
                   <SelectTrigger className="h-9 text-sm">
                     <SelectValue />
                   </SelectTrigger>
@@ -380,9 +388,14 @@ export default function ReferenceAnswers() {
               </div>
 
               {/* Open-ended Prompt */}
-              <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Open-ended Questions Prompt</Label>
-                <Select value={openPromptId} onValueChange={setOpenPromptId}>
+              <div className={`space-y-1.5 transition-opacity ${!datasetHasOpen ? "opacity-40 pointer-events-none" : ""}`}>
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground">Open-ended Questions Prompt</Label>
+                  {!datasetHasOpen && selectedDatasetId && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Not in dataset</span>
+                  )}
+                </div>
+                <Select value={openPromptId} onValueChange={setOpenPromptId} disabled={!datasetHasOpen}>
                   <SelectTrigger className="h-9 text-sm">
                     <SelectValue />
                   </SelectTrigger>
