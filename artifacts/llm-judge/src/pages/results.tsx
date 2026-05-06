@@ -673,7 +673,7 @@ function MCQRow({
                             )}
                           </div>
                           <div className="text-sm font-mono font-bold bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-amber-900 text-center text-xl">
-                            {row.referenceAnswer.trim().slice(0, 1).toUpperCase()}
+                            {String(row.referenceAnswer ?? "").trim().slice(0, 1).toUpperCase() || "?"}
                           </div>
                         </div>
                       )}
