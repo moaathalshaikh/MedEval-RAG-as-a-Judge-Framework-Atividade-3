@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, FileText, ArrowRight } from "lucide-react";
+import { Play, Settings, AlertCircle, CheckCircle2, SkipForward, BookOpen, Sparkles, FileText, ArrowRight, Calculator } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +73,22 @@ function useRefStatus(datasetId: string | null, judgeModelId: string) {
   });
 }
 
+function useDatasetQuestionTypes(datasetId: string) {
+  return useQuery<{ hasOpenEnded: boolean; hasMCQ: boolean; total: number }>({
+    queryKey: ["questions", "types", datasetId],
+    queryFn: () =>
+      fetch(`/api/questions?datasetId=${datasetId}`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((qs: { questionType: string }[]) => ({
+          hasOpenEnded: qs.some((q) => q.questionType === "OPEN_ENDED"),
+          hasMCQ: qs.some((q) => q.questionType === "MCQ"),
+          total: qs.length,
+        })),
+    enabled: !!datasetId,
+    staleTime: 60_000,
+  });
+}
+
 function useEvalPrompts() {
   return useQuery<PromptItem[]>({
     queryKey: ["prompts", "EVALUATION"],
@@ -123,27 +139,41 @@ export default function Evaluate() {
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
 
   const { data: refStatus } = useRefStatus(selectedDatasetId || null, selectedJudgeId);
+  const { data: questionTypes } = useDatasetQuestionTypes(selectedDatasetId);
 
-  const refComplete = refStatus ? refStatus.covered >= refStatus.total && refStatus.total > 0 : false;
+  const isMCQOnly  = !!questionTypes && questionTypes.total > 0 && !questionTypes.hasOpenEnded;
+  const isMixedOrOpen = !isMCQOnly;
+
+  const refComplete = isMCQOnly
+    ? true
+    : refStatus ? refStatus.covered >= refStatus.total && refStatus.total > 0 : false;
   const refProgress = refStatus && refStatus.total > 0
     ? Math.round((refStatus.covered / refStatus.total) * 100)
     : 0;
 
   const selectedJudge = activeJudgeModels?.find((m) => m.id.toString() === selectedJudgeId);
+  const firstAvailableJudge = activeJudgeModels?.[0];
   const judgeMeta = selectedJudge ? PROVIDER_META[selectedJudge.provider] : null;
 
   const hasActiveModels = (activeJudgeModels?.length ?? 0) > 0;
-  const isReady = !!selectedJudge && !!selectedDatasetId && refComplete;
+  const isReady = isMCQOnly
+    ? !!selectedDatasetId
+    : !!selectedJudge && !!selectedDatasetId && refComplete;
+
+  const effectiveJudgeId = isMCQOnly
+    ? (selectedJudge?.id ?? firstAvailableJudge?.id ?? 0)
+    : selectedJudge?.id ?? 0;
 
   function handleEvaluate() {
-    if (!selectedJudge || !selectedDatasetId) return;
+    if (!selectedDatasetId) return;
+    if (!isMCQOnly && !selectedJudge) return;
     setEvalResult(null);
     runJudge.mutate(
       {
-        judgeModelId: selectedJudge.id,
+        judgeModelId: effectiveJudgeId,
         datasetId: parseInt(selectedDatasetId),
         modelId: selectedModelId && selectedModelId !== "all" ? parseInt(selectedModelId) : undefined,
-        useReferenceAnswers: true,
+        useReferenceAnswers: isMixedOrOpen,
         evalPromptId: evalPromptId || "system_evaluation",
       },
       {
@@ -180,20 +210,40 @@ export default function Evaluate() {
         <div className="md:col-span-8 space-y-4">
 
           {/* Judge Model selection */}
-          <Card>
+          <Card className={isMCQOnly ? "opacity-60" : ""}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
-                <Link href="/settings">
-                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-                    <Settings className="h-3.5 w-3.5" />
-                    Manage
-                  </Button>
-                </Link>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-semibold">Judge Model</CardTitle>
+                  {isMCQOnly && (
+                    <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700 border-blue-200 gap-1">
+                      <Calculator className="h-3 w-3" />
+                      Not required for MCQ
+                    </Badge>
+                  )}
+                </div>
+                {!isMCQOnly && (
+                  <Link href="/settings">
+                    <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                      <Settings className="h-3.5 w-3.5" />
+                      Manage
+                    </Button>
+                  </Link>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {isLoadingJudge ? (
+              {isMCQOnly ? (
+                <div className="flex items-center gap-3 px-3 py-3 rounded-lg bg-blue-50 border border-blue-200">
+                  <Calculator className="h-5 w-5 text-blue-500 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">Auto-graded deterministically</p>
+                    <p className="text-xs text-blue-600 mt-0.5">
+                      MCQ scoring compares the model's letter directly to the gold answer — no LLM call is made.
+                    </p>
+                  </div>
+                </div>
+              ) : isLoadingJudge ? (
                 <Skeleton className="h-10 w-full" />
               ) : !hasActiveModels ? (
                 <Alert className="border-amber-200 bg-amber-50">
@@ -254,43 +304,57 @@ export default function Evaluate() {
           </Card>
 
           {/* Evaluation Prompt */}
-          <Card>
+          <Card className={isMCQOnly ? "opacity-60" : ""}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  Evaluation Prompt
-                </CardTitle>
-                <Link href="/settings?tab=prompts">
-                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-                    <Settings className="h-3.5 w-3.5" />
-                    Manage Prompts
-                  </Button>
-                </Link>
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    Evaluation Prompt
+                  </CardTitle>
+                  {isMCQOnly && (
+                    <Badge className="text-[10px] h-5 px-1.5 bg-blue-100 text-blue-700 border-blue-200 gap-1">
+                      <Calculator className="h-3 w-3" />
+                      Not required for MCQ
+                    </Badge>
+                  )}
+                </div>
+                {!isMCQOnly && (
+                  <Link href="/settings?tab=prompts">
+                    <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+                      <Settings className="h-3.5 w-3.5" />
+                      Manage Prompts
+                    </Button>
+                  </Link>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
-                The prompt used to instruct the judge how to score each open-ended response. MCQ is graded deterministically.
+                {isMCQOnly
+                  ? "No prompt needed — MCQ is graded by direct letter comparison."
+                  : "The prompt used to instruct the judge how to score each open-ended response. MCQ is graded deterministically."}
               </p>
             </CardHeader>
-            <CardContent>
-              <Select value={evalPromptId} onValueChange={setEvalPromptId}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(evalPrompts ?? []).map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <div className="flex items-center gap-2">
-                        {p.isSystem && (
-                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">System</span>
-                        )}
-                        <span>{promptLabel(p)}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
+            {!isMCQOnly && (
+              <CardContent>
+                <Select value={evalPromptId} onValueChange={setEvalPromptId}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(evalPrompts ?? []).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <div className="flex items-center gap-2">
+                          {p.isSystem && (
+                            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">System</span>
+                          )}
+                          <span>{promptLabel(p)}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            )}
           </Card>
 
           {/* Dataset & Model selection */}
@@ -339,8 +403,8 @@ export default function Evaluate() {
             </CardContent>
           </Card>
 
-          {/* Reference answers status */}
-          {selectedDatasetId && (
+          {/* Reference answers status — hidden for MCQ-only datasets */}
+          {selectedDatasetId && !isMCQOnly && (
             <Card className={`border-2 ${refComplete ? "border-green-200 bg-green-50/30" : "border-amber-200 bg-amber-50/30"}`}>
               <CardContent className="p-4">
                 {refStatus && refStatus.total > 0 ? (
@@ -409,12 +473,14 @@ export default function Evaluate() {
 
               {!isReady && (
                 <p className="text-xs text-muted-foreground text-center">
-                  {!hasActiveModels
+                  {!selectedDatasetId
+                    ? "Select a dataset to continue"
+                    : isMCQOnly
+                    ? ""
+                    : !hasActiveModels
                     ? "Configure a judge model in Settings first"
                     : !selectedJudge
                     ? "Select a judge model above"
-                    : !selectedDatasetId
-                    ? "Select a dataset to continue"
                     : "Complete Step 2 (Reference Answers) before evaluating"}
                 </p>
               )}

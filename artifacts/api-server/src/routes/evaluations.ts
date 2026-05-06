@@ -117,12 +117,20 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
   }
   resolvedModelVersion = await getUserSetting(uid, JUDGE_MODEL_VERSION_KEY);
 
+  // For MCQ-only datasets no LLM call is needed — fall back to the first available judge model
+  // just to satisfy the DB foreign-key requirement when storing auto-graded results.
+  const allJudgeModelsForFallback = await db.select().from(judgeModelsTable);
   if (!resolvedJudgeModelId || !resolvedModelVersion) {
-    res.status(400).json({ error: "No judge model configured. Please configure one in Settings." });
-    return;
+    const fallback = allJudgeModelsForFallback[0];
+    if (!fallback) {
+      res.status(400).json({ error: "No judge model configured. Please add at least one in Settings." });
+      return;
+    }
+    resolvedJudgeModelId = fallback.id;
+    resolvedModelVersion = resolvedModelVersion ?? "auto-graded";
   }
 
-  const [judgeModel] = await db.select().from(judgeModelsTable).where(eq(judgeModelsTable.id, resolvedJudgeModelId));
+  const judgeModel = allJudgeModelsForFallback.find((m) => m.id === resolvedJudgeModelId);
   if (!judgeModel) {
     res.status(404).json({ error: "Judge model not found" });
     return;
