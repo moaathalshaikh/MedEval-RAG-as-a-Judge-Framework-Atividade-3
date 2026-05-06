@@ -1,3 +1,4 @@
+import React from "react";
 import { useListDatasets } from "@workspace/api-client-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -101,6 +102,13 @@ export default function ReferenceAnswers() {
     selectedDatasetId || null,
     selectedJudgeId
   );
+
+  // Poll status every 2 s while generating to show live progress
+  React.useEffect(() => {
+    if (!generateRef.isPending) return;
+    const id = setInterval(() => { refetchStatus(); }, 2000);
+    return () => clearInterval(id);
+  }, [generateRef.isPending, refetchStatus]);
 
   const refComplete = refStatus ? refStatus.covered >= refStatus.total && refStatus.total > 0 : false;
   const refProgress = refStatus && refStatus.total > 0
