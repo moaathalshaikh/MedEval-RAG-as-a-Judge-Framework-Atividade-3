@@ -136,6 +136,18 @@ export function LoginPage() {
           </p>
         </div>
 
+        <p className="text-center text-[11px] text-muted-foreground mb-6">
+          Developed by{" "}
+          <a
+            href="https://www.linkedin.com/in/moaath-alshaikh"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline font-medium"
+          >
+            Moaath ALSHAIKH
+          </a>
+        </p>
+
         <AnimatePresence mode="wait">
           {/* ── CHOOSE MODE ─────────────────────────────── */}
           {mode === "choose" && (

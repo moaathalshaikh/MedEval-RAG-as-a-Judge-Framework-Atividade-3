@@ -155,6 +155,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
+        {/* Developer credit */}
+        <div className="px-4 py-2 text-center">
+          <p className="text-[10px] text-muted-foreground/70">
+            Developed by{" "}
+            <a
+              href="https://www.linkedin.com/in/moaath-alshaikh"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary/80 hover:text-primary hover:underline font-medium transition-colors"
+            >
+              Moaath ALSHAIKH
+            </a>
+          </p>
+        </div>
+
         {/* Footer — user card + logout */}
         <div className="p-3 border-t border-border">
           {user ? (
