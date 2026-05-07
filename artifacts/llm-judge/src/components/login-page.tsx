@@ -139,13 +139,14 @@ export function LoginPage() {
         <p className="text-center text-[11px] text-muted-foreground mb-6">
           Developed by{" "}
           <a
-            href="https://www.linkedin.com/in/moaath-alshaikh"
+            href="https://www.linkedin.com/in/moaathalshaikh/"
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary hover:underline font-medium"
           >
             Moaath ALSHAIKH
           </a>
+          {" "}& Tasneem ALSHAHER
         </p>
 
         <AnimatePresence mode="wait">

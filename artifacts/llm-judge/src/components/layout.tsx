@@ -160,13 +160,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <p className="text-[10px] text-muted-foreground/70">
             Developed by{" "}
             <a
-              href="https://www.linkedin.com/in/moaath-alshaikh"
+              href="https://www.linkedin.com/in/moaathalshaikh/"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary/80 hover:text-primary hover:underline font-medium transition-colors"
             >
               Moaath ALSHAIKH
             </a>
+            {" "}& Tasneem ALSHAHER
           </p>
         </div>
 
