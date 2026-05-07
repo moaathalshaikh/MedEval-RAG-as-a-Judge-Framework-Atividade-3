@@ -136,19 +136,23 @@ export function LoginPage() {
           </p>
         </div>
 
-        <p className="text-center text-[11px] text-muted-foreground mb-6 leading-5">
-          Developed by:{" "}
-          <a
-            href="https://www.linkedin.com/in/moaathalshaikh/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline font-bold"
-          >
-            Moaath ALSHAIKH
-          </a>
-          {" "}&<br />
-          <span className="text-primary font-bold">Tasneem ALSHAHER</span>
-        </p>
+        <div className="flex flex-col items-center mb-6 gap-0.5 text-[11px] text-muted-foreground">
+          <span>Developed by:</span>
+          <div className="flex flex-col items-center leading-5">
+            <span>
+              <a
+                href="https://www.linkedin.com/in/moaathalshaikh/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline font-bold"
+              >
+                Moaath ALSHAIKH
+              </a>
+              {" "}&
+            </span>
+            <span className="text-primary font-bold">Tasneem ALSHAHER</span>
+          </div>
+        </div>
 
         <AnimatePresence mode="wait">
           {/* ── CHOOSE MODE ─────────────────────────────── */}

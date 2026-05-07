@@ -157,19 +157,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Developer credit */}
         <div className="px-4 py-2 text-center">
-          <p className="text-[10px] text-muted-foreground/70 leading-4">
-            Developed by:{" "}
-            <a
-              href="https://www.linkedin.com/in/moaathalshaikh/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary/80 hover:text-primary hover:underline font-bold transition-colors"
-            >
-              Moaath ALSHAIKH
-            </a>
-            {" "}&<br />
-            <span className="text-primary/80 font-bold">Tasneem ALSHAHER</span>
-          </p>
+          <div className="flex flex-col items-center gap-0.5 text-[10px] text-muted-foreground/70">
+            <span>Developed by:</span>
+            <div className="flex flex-col items-center leading-4">
+              <span>
+                <a
+                  href="https://www.linkedin.com/in/moaathalshaikh/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary/80 hover:text-primary hover:underline font-bold transition-colors"
+                >
+                  Moaath ALSHAIKH
+                </a>
+                {" "}&
+              </span>
+              <span className="text-primary/80 font-bold">Tasneem ALSHAHER</span>
+            </div>
+          </div>
         </div>
 
         {/* Footer — user card + logout */}
