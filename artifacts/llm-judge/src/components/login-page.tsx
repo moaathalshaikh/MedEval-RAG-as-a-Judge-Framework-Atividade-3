@@ -136,8 +136,8 @@ export function LoginPage() {
           </p>
         </div>
 
-        <p className="text-center text-[11px] text-muted-foreground mb-6">
-          Developed by{" "}
+        <p className="text-center text-[11px] text-muted-foreground mb-6 leading-5">
+          Developed by:{" "}
           <a
             href="https://www.linkedin.com/in/moaathalshaikh/"
             target="_blank"
@@ -146,7 +146,8 @@ export function LoginPage() {
           >
             Moaath ALSHAIKH
           </a>
-          {" "}& <span className="font-bold">Tasneem ALSHAHER</span>
+          {" "}&<br />
+          <span className="text-primary font-bold">Tasneem ALSHAHER</span>
         </p>
 
         <AnimatePresence mode="wait">

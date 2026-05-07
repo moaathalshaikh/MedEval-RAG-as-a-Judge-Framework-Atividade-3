@@ -157,8 +157,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Developer credit */}
         <div className="px-4 py-2 text-center">
-          <p className="text-[10px] text-muted-foreground/70">
-            Developed by{" "}
+          <p className="text-[10px] text-muted-foreground/70 leading-4">
+            Developed by:{" "}
             <a
               href="https://www.linkedin.com/in/moaathalshaikh/"
               target="_blank"
@@ -167,7 +167,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             >
               Moaath ALSHAIKH
             </a>
-            {" "}& <span className="font-bold">Tasneem ALSHAHER</span>
+            {" "}&<br />
+            <span className="text-primary/80 font-bold">Tasneem ALSHAHER</span>
           </p>
         </div>
 
