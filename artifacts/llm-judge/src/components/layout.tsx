@@ -163,11 +163,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               href="https://www.linkedin.com/in/moaathalshaikh/"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-primary/80 hover:text-primary hover:underline font-medium transition-colors"
+              className="text-primary/80 hover:text-primary hover:underline font-bold transition-colors"
             >
               Moaath ALSHAIKH
             </a>
-            {" "}& Tasneem ALSHAHER
+            {" "}& <span className="font-bold">Tasneem ALSHAHER</span>
           </p>
         </div>
 

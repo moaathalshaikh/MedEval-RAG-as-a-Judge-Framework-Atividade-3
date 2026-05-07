@@ -142,11 +142,11 @@ export function LoginPage() {
             href="https://www.linkedin.com/in/moaathalshaikh/"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary hover:underline font-medium"
+            className="text-primary hover:underline font-bold"
           >
             Moaath ALSHAIKH
           </a>
-          {" "}& Tasneem ALSHAHER
+          {" "}& <span className="font-bold">Tasneem ALSHAHER</span>
         </p>
 
         <AnimatePresence mode="wait">
