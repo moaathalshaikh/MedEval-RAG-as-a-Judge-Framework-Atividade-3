@@ -19,7 +19,7 @@ router.get("/admin/db-backup", (req, res): void => {
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const filename = `medeval-backup-${timestamp}.db`;
+  const filename = `medeval-backup-${timestamp}.sql`;
 
   res.setHeader("Content-Type", "application/octet-stream");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

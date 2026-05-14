@@ -814,7 +814,7 @@ function DbBackupCard() {
 
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const match = disposition.match(/filename="([^"]+)"/);
-      const filename = match?.[1] ?? `medeval-backup-${new Date().toISOString().slice(0,19).replace(/[:.]/g,"-")}.db`;
+      const filename = match?.[1] ?? `medeval-backup-${new Date().toISOString().slice(0,19).replace(/[:.]/g,"-")}.sql`;
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -846,27 +846,37 @@ function DbBackupCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Exports a full PostgreSQL dump of all evaluation data — questions, responses, scores,
-          human evaluations, flags, and settings — as a plain-SQL <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.db</code> file
-          that can be restored with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">psql</code>.
+          Exports a full PostgreSQL SQL dump of the MedEval evaluation platform, including
+          datasets, responses, evaluations, human reviews, flags, prompts, and analytics metadata.
+          Generated using <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pg_dump</code> and
+          can be restored using <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">psql</code>.
         </p>
 
         <div className="rounded-lg border border-border bg-muted/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
           <p className="font-semibold text-foreground text-[11px] uppercase tracking-wide">What's included</p>
           {[
-            "All datasets, questions, and gold answers",
-            "All SLM model responses and inference logs",
-            "All judge evaluations with scores and reasoning",
-            "All human evaluations",
-            "Response quality flags",
-            "Judge models, prompts, and settings",
-            "Activity log and reference answers",
+            "Datasets, questions, and gold answers",
+            "SLM responses and inference metadata",
+            "Judge evaluations, scores, and reasoning",
+            "Human evaluations and reviewer notes",
+            "Response quality flags and analytics metadata",
+            "Judge models, prompts, and evaluation settings",
+            "Activity logs and synthetic reference answers",
           ].map((item) => (
             <div key={item} className="flex items-center gap-2">
               <Check className="h-3 w-3 text-green-500 shrink-0" />
               <span>{item}</span>
             </div>
           ))}
+        </div>
+
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 flex gap-2.5 text-xs text-amber-800">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+          <p className="leading-relaxed">
+            <span className="font-semibold">Security Notice —</span>{" "}
+            Backup files may contain sensitive evaluation and reviewer data.
+            Store backups securely and avoid sharing publicly.
+          </p>
         </div>
 
         {lastBackup && (
@@ -889,13 +899,13 @@ function DbBackupCard() {
           ) : (
             <>
               <Download className="h-4 w-4" />
-              Download Database Backup (.db)
+              Download Database Backup (.sql)
             </>
           )}
         </Button>
 
         <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-          Restore with: <code className="font-mono bg-muted px-1 py-0.5 rounded">psql $DATABASE_URL &lt; backup.db</code>
+          Restore with: <code className="font-mono bg-muted px-1 py-0.5 rounded">psql $DATABASE_URL &lt; backup.sql</code>
         </p>
       </CardContent>
     </Card>
