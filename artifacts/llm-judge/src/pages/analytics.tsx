@@ -1,12 +1,11 @@
 import { useGetModelComparison, useGetScoreDistribution, useGetSpearmanCorrelation } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine, Cell } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain, Flag } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,6 +24,130 @@ interface DisagreementEntry {
   bias: "overrating" | "underrating" | null;
 }
 
+interface FlagStat {
+  flagType: string;
+  count: number;
+  percentage: number;
+}
+
+interface ResponseFlagEntry {
+  id: number;
+  responseId: number;
+  flagType: string;
+  source: "HUMAN" | "AUTO" | "JUDGE";
+  notes: string | null;
+}
+
+// ── Shared Flag meta ──────────────────────────────────────────────────────────
+
+const FLAG_META: Record<string, { label: string; color: string; bg: string; border: string; chartColor: string }> = {
+  PROMPT_LEAKAGE: { label: "Prompt Leakage",  color: "text-red-700",    bg: "bg-red-50",    border: "border-red-200",    chartColor: "#ef4444" },
+  HALLUCINATION:  { label: "Hallucination",   color: "text-purple-700", bg: "bg-purple-50", border: "border-purple-200", chartColor: "#a855f7" },
+  OVER_VERBOSE:   { label: "Over-Verbose",    color: "text-amber-700",  bg: "bg-amber-50",  border: "border-amber-200",  chartColor: "#f59e0b" },
+  FACTUAL_ERROR:  { label: "Factual Error",   color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-200", chartColor: "#f97316" },
+  PARTIAL_ANSWER: { label: "Partial Answer",  color: "text-blue-700",   bg: "bg-blue-50",   border: "border-blue-200",   chartColor: "#3b82f6" },
+  OFF_TOPIC:      { label: "Off-Topic",       color: "text-slate-700",  bg: "bg-slate-50",  border: "border-slate-200",  chartColor: "#64748b" },
+};
+
+function SmallFlagBadge({ flagType }: { flagType: string }) {
+  const meta = FLAG_META[flagType];
+  if (!meta) return null;
+  return (
+    <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${meta.bg} ${meta.border} ${meta.color}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+// ── Flag Stats Section ────────────────────────────────────────────────────────
+
+function useFlagStats() {
+  return useQuery<FlagStat[]>({
+    queryKey: ["analytics", "flag-stats"],
+    queryFn: () =>
+      fetch("/api/analytics/flag-stats", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+}
+
+function FlagStatsSection() {
+  const { data, isLoading } = useFlagStats();
+
+  const chartData = (data ?? []).map((d) => ({
+    name: FLAG_META[d.flagType]?.label ?? d.flagType,
+    count: d.count,
+    percentage: d.percentage,
+    flagType: d.flagType,
+  }));
+
+  const total = (data ?? []).reduce((s, d) => s + d.count, 0);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Flag className="h-4 w-4 text-slate-500" />
+            Most Common Failure Types
+          </CardTitle>
+          {total > 0 && (
+            <span className="text-xs text-muted-foreground font-normal">
+              {total} flag{total !== 1 ? "s" : ""} total
+            </span>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : !data || data.length === 0 ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            <Flag className="h-6 w-6 mx-auto mb-2 opacity-30" />
+            No flags yet. Add quality flags on the Results page to see failure patterns.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Horizontal bar chart */}
+            <div className="h-[220px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 40, left: 8, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
+                  <XAxis type="number" allowDecimals={false} stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis dataKey="name" type="category" stroke="hsl(var(--foreground))" fontSize={11} tickLine={false} axisLine={false} width={100} />
+                  <Tooltip
+                    cursor={{ fill: "hsl(var(--muted))" }}
+                    contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                    formatter={(val: number, _name: string, props: any) => [`${val} (${props.payload.percentage}%)`, "Count"]}
+                  />
+                  <Bar dataKey="count" name="Count" radius={[0, 4, 4, 0]} barSize={18}>
+                    {chartData.map((entry) => (
+                      <Cell key={entry.flagType} fill={FLAG_META[entry.flagType]?.chartColor ?? "#94a3b8"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Summary badges */}
+            <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
+              {data.map((d) => {
+                const meta = FLAG_META[d.flagType];
+                return (
+                  <div key={d.flagType} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${meta?.bg} ${meta?.border}`}>
+                    <span className={`text-xs font-semibold ${meta?.color}`}>{meta?.label ?? d.flagType}</span>
+                    <span className={`text-xs font-bold ${meta?.color}`}>{d.count}</span>
+                    <span className={`text-[10px] opacity-60 ${meta?.color}`}>{d.percentage}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Disagreement Analysis ─────────────────────────────────────────────────────
 
 function useDisagreements(threshold: number, limit: number) {
@@ -34,6 +157,19 @@ function useDisagreements(threshold: number, limit: number) {
       fetch(`/api/analytics/disagreements?threshold=${threshold}&limit=${limit}`, {
         credentials: "include",
       }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+}
+
+function useResponseFlagsBulk(responseIds: number[]) {
+  const key = responseIds.sort().join(",");
+  return useQuery<Record<number, ResponseFlagEntry[]>>({
+    queryKey: ["response-flags-bulk", key],
+    queryFn: () =>
+      key
+        ? fetch(`/api/response-flags/bulk?responseIds=${key}`, { credentials: "include" }).then((r) => r.json())
+        : Promise.resolve({}),
+    enabled: responseIds.length > 0,
     staleTime: 30_000,
   });
 }
@@ -53,7 +189,7 @@ function ScorePill({ score, label }: { score: number | null; label: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
       <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-bold bg-white border border-border shadow-sm`}>
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-bold bg-white border border-border shadow-sm">
         <span className={`w-2 h-2 rounded-full ${dotClass}`} />
         {typeof score === "number" && !Number.isInteger(score) ? score.toFixed(1) : score}
         <span className="text-xs text-muted-foreground font-normal">/5</span>
@@ -77,7 +213,15 @@ function BiasBadge({ bias }: { bias: "overrating" | "underrating" | null }) {
   );
 }
 
-function DisagreementCard({ entry, rank }: { entry: DisagreementEntry; rank: number }) {
+function DisagreementCard({
+  entry,
+  rank,
+  flags,
+}: {
+  entry: DisagreementEntry;
+  rank: number;
+  flags: ResponseFlagEntry[];
+}) {
   const [expanded, setExpanded] = useState(false);
   const isCritical = (entry.disagreementDelta ?? 0) >= 3;
 
@@ -87,9 +231,7 @@ function DisagreementCard({ entry, rank }: { entry: DisagreementEntry; rank: num
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: rank * 0.04 }}
       className={`rounded-xl border overflow-hidden ${
-        isCritical
-          ? "border-red-200 bg-red-50/30"
-          : "border-orange-200 bg-orange-50/20"
+        isCritical ? "border-red-200 bg-red-50/30" : "border-orange-200 bg-orange-50/20"
       }`}
     >
       {/* Header row */}
@@ -124,6 +266,12 @@ function DisagreementCard({ entry, rank }: { entry: DisagreementEntry; rank: num
                 {entry.humanEvalCount} reviewers
               </span>
             )}
+            {/* Quality flags for this response */}
+            {flags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {flags.map((f) => <SmallFlagBadge key={f.id} flagType={f.flagType} />)}
+              </div>
+            )}
           </div>
         </div>
 
@@ -132,9 +280,7 @@ function DisagreementCard({ entry, rank }: { entry: DisagreementEntry; rank: num
           <ScorePill score={entry.judgeScore} label="Judge" />
           <div className="flex flex-col items-center gap-1">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Δ</span>
-            <span className={`text-lg font-bold tabular-nums ${
-              isCritical ? "text-red-600" : "text-orange-600"
-            }`}>
+            <span className={`text-lg font-bold tabular-nums ${isCritical ? "text-red-600" : "text-orange-600"}`}>
               {entry.disagreementDelta?.toFixed(1)}
             </span>
           </div>
@@ -155,6 +301,28 @@ function DisagreementCard({ entry, rank }: { entry: DisagreementEntry; rank: num
             className="overflow-hidden border-t border-border/60"
           >
             <div className="p-4 pt-3 space-y-3 bg-white/60">
+
+              {/* Flags detail */}
+              {flags.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1">
+                    <Flag className="h-3 w-3" /> Quality Flags
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {flags.map((f) => (
+                      <div key={f.id} className="flex flex-col">
+                        <SmallFlagBadge flagType={f.flagType} />
+                        {f.notes && (
+                          <span className="text-[10px] text-muted-foreground mt-0.5 pl-1 max-w-[200px] truncate" title={f.notes}>
+                            {f.notes}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Model response */}
               <div className="space-y-1">
                 <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Model Response</p>
@@ -204,6 +372,9 @@ function DisagreementSection() {
   const [threshold, setThreshold] = useState(2);
   const [limit] = useState(10);
   const { data, isLoading } = useDisagreements(threshold, limit);
+
+  const responseIds = (data ?? []).map((d) => d.responseId);
+  const { data: flagsMap = {} } = useResponseFlagsBulk(responseIds);
 
   const overrating = data?.filter((d) => d.bias === "overrating").length ?? 0;
   const underrating = data?.filter((d) => d.bias === "underrating").length ?? 0;
@@ -274,7 +445,12 @@ function DisagreementSection() {
       ) : (
         <div className="space-y-3">
           {data.map((entry, i) => (
-            <DisagreementCard key={entry.responseId} entry={entry} rank={i + 1} />
+            <DisagreementCard
+              key={entry.responseId}
+              entry={entry}
+              rank={i + 1}
+              flags={flagsMap[entry.responseId] ?? []}
+            />
           ))}
         </div>
       )}
@@ -438,6 +614,9 @@ export default function Analytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Flag Stats ── */}
+      <FlagStatsSection />
 
       {/* ── Disagreement Analysis ── */}
       <DisagreementSection />

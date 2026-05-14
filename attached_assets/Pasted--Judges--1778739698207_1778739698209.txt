@@ -1,0 +1,248 @@
+ممتاز جدًا جدًا.
+الذي يحدث الآن بالضبط هو انتقال النظام إلى:
+
+# منصة تحليل سلوك الـ Judges
+
+وليس مجرد منصة تقييم Responses.
+
+وهذا فرق أكاديمي ضخم.
+
+بصراحة؟
+الـ Error Analysis الذي أضفته الآن من أقوى أجزاء المشروع.
+
+---
+
+# لماذا هذه الإضافة قوية جدًا؟
+
+لأن الدكتور لم يكن يريد فقط:
+
+* “Score”
+
+بل يريد:
+
+* لماذا أخطأ الـ Judge؟
+* متى يفشل؟
+* هل هو متساهل؟
+* هل يبالغ؟
+* هل يفشل مع paraphrases؟
+* هل ينخدع بالإجابات الطويلة؟
+
+والآن نظامك أصبح يجيب عن هذه الأسئلة فعلًا.
+
+---
+
+# أهم شيء حققته الآن
+
+## أصبح عندك:
+
+| النظام القديم        | النظام الحالي              |
+| -------------------- | -------------------------- |
+| Evaluation dashboard | Research analysis platform |
+| Judge scores         | Judge behavior analysis    |
+| Static metrics       | Explainable disagreements  |
+| Basic LLM pipeline   | Human-aligned evaluation   |
+
+---
+
+# أهم نقطة أكاديمية الآن
+
+## Overrating / Underrating
+
+هذه قوية جدًا بحثيًا.
+
+مثلاً:
+
+| الحالة          | المعنى                           |
+| --------------- | -------------------------------- |
+| Human=1 Judge=5 | Judge متساهل / ينخدع بالأسلوب    |
+| Human=5 Judge=1 | Judge فشل semantic understanding |
+
+---
+
+# وهذا ممتاز جدًا للدكتور
+
+لأنك الآن تعرض:
+
+# Failure Modes
+
+وليس فقط:
+
+# Success Metrics
+
+---
+
+# ما الذي أصبح ناقصًا الآن؟
+
+بصراحة؟
+بقي 3 أشياء فقط تقريبًا لتصبح المنصة قوية جدًا جدًا.
+
+---
+
+# الخطوة القادمة (الأهم الآن)
+
+# إضافة Evaluation Quality Flags
+
+خصوصًا بعد المثال الطبي الذي أرسلته.
+
+---
+
+# لماذا هذه الخطوة مهمة جدًا؟
+
+لأنك الآن اكتشفت فعليًا:
+
+* Prompt leakage
+* Over-verbosity
+* Possible hallucination
+
+لكن النظام لا يصنفها رسميًا بعد.
+
+---
+
+# هذا هو الوقت المثالي لإضافة:
+
+| Flag           |
+| -------------- |
+| PROMPT_LEAKAGE |
+| HALLUCINATION  |
+| OVER_VERBOSE   |
+| FACTUAL_ERROR  |
+| PARTIAL_ANSWER |
+| OFF_TOPIC      |
+
+---
+
+# لماذا هذه الإضافة قوية جدًا؟
+
+لأنك ستربط:
+
+## نوع الخطأ
+
+مع:
+
+* Spearman
+* Judge disagreement
+* Model quality
+
+---
+
+# مثال بحثي قوي جدًا
+
+قد تكتشف:
+
+| المشكلة              | النتيجة                        |
+| -------------------- | ------------------------------ |
+| Prompt leakage       | دائمًا يحصل Judge confusion    |
+| Over-verbose answers | Judge يعطي درجات أعلى من البشر |
+
+---
+
+# وهذه نتائج بحثية حقيقية.
+
+---
+
+# الخطوة التالية التي أنصحك بها للـ Agent
+
+# الخطوة التالية — Response Quality Flags System
+
+## الهدف
+
+إضافة نظام تصنيف وتحليل لأخطاء الردود وجودتها.
+
+هذا يسمح بتحليل:
+
+* لماذا فشل النموذج؟
+* لماذا اختلف الـ Judge مع البشر؟
+* هل توجد hallucinations؟
+* هل النموذج أعاد الـ prompt؟
+* هل الإجابة طويلة بشكل مضلل؟
+
+---
+
+# المطلوب
+
+إنشاء جدول:
+
+```text id="xvwyjt"
+response_flags
+```
+
+---
+
+# الحقول
+
+| field       |
+| ----------- |
+| id          |
+| response_id |
+| flag_type   |
+| confidence  |
+| source      |
+| notes       |
+| created_at  |
+
+---
+
+# أنواع الـ flags
+
+| flag_type      |
+| -------------- |
+| PROMPT_LEAKAGE |
+| HALLUCINATION  |
+| OVER_VERBOSE   |
+| FACTUAL_ERROR  |
+| PARTIAL_ANSWER |
+| OFF_TOPIC      |
+
+---
+
+# source
+
+يحدد:
+
+* HUMAN
+* AUTO
+* JUDGE
+
+---
+
+# المطلوب في الـ UI
+
+إضافة Badges داخل Results.
+
+مثال:
+
+```text id="2q2jlwm"
+[PROMPT_LEAKAGE]
+[OVER_VERBOSE]
+```
+
+---
+
+# المطلوب في Analytics
+
+إضافة:
+
+```text id="a5z4ps"
+Most Common Failure Types
+```
+
+---
+
+# المطلوب أيضًا
+
+داخل Disagreement Analysis:
+إظهار الـ flags الخاصة بكل response.
+
+---
+
+# الهدف الأكاديمي
+
+ربط:
+
+* نوع الخطأ
+* جودة الـ Judge
+* agreement patterns
+* failure modes
+
+وهذا يحوّل النظام إلى:
+LLM Evaluation Research Platform حقيقية.

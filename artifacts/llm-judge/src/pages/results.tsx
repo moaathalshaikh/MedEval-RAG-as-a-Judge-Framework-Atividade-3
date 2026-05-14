@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp, UserCheck, Users, BarChart3 } from "lucide-react";
+import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp, UserCheck, Users, BarChart3, Flag, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -359,6 +359,208 @@ function SummaryStats({
   }
 
   return null;
+}
+
+// ── Response Flags ────────────────────────────────────────────────────────────
+
+const FLAG_META: Record<string, { label: string; color: string; bg: string; border: string; desc: string }> = {
+  PROMPT_LEAKAGE: { label: "Prompt Leakage",  color: "text-red-700",    bg: "bg-red-50",     border: "border-red-200",    desc: "Model echoed or leaked the system prompt" },
+  HALLUCINATION:  { label: "Hallucination",   color: "text-purple-700", bg: "bg-purple-50",  border: "border-purple-200", desc: "Model fabricated facts not in context" },
+  OVER_VERBOSE:   { label: "Over-Verbose",    color: "text-amber-700",  bg: "bg-amber-50",   border: "border-amber-200",  desc: "Answer is excessively long / padded" },
+  FACTUAL_ERROR:  { label: "Factual Error",   color: "text-orange-700", bg: "bg-orange-50",  border: "border-orange-200", desc: "Answer contains factually incorrect statement" },
+  PARTIAL_ANSWER: { label: "Partial Answer",  color: "text-blue-700",   bg: "bg-blue-50",    border: "border-blue-200",   desc: "Answer is incomplete or misses key points" },
+  OFF_TOPIC:      { label: "Off-Topic",       color: "text-slate-700",  bg: "bg-slate-50",   border: "border-slate-200",  desc: "Response does not address the question" },
+};
+
+interface ResponseFlagEntry {
+  id: number;
+  responseId: number;
+  flagType: string;
+  confidence: number | null;
+  source: "HUMAN" | "AUTO" | "JUDGE";
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+function useResponseFlags(responseId: number, enabled: boolean) {
+  return useQuery<ResponseFlagEntry[]>({
+    queryKey: ["response-flags", responseId],
+    queryFn: () =>
+      fetch(`/api/response-flags?responseId=${responseId}`, { credentials: "include" }).then((r) => r.json()),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+function useAddFlag() {
+  return useMutation<ResponseFlagEntry, { error?: string }, { responseId: number; flagType: string; notes?: string; confidence?: number }>({
+    mutationFn: (body) =>
+      fetch("/api/response-flags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        if (!r.ok) throw await r.json();
+        return r.json();
+      }),
+  });
+}
+
+function useDeleteFlag() {
+  return useMutation<void, { error?: string }, number>({
+    mutationFn: (id) =>
+      fetch(`/api/response-flags/${id}`, { method: "DELETE", credentials: "include" }).then(async (r) => {
+        if (!r.ok) throw await r.json();
+      }),
+  });
+}
+
+function FlagBadge({ flag, onDelete }: { flag: ResponseFlagEntry; onDelete?: (id: number) => void }) {
+  const meta = FLAG_META[flag.flagType] ?? { label: flag.flagType, color: "text-slate-600", bg: "bg-slate-50", border: "border-slate-200", desc: "" };
+  return (
+    <span className={`inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[11px] font-semibold border ${meta.bg} ${meta.border} ${meta.color}`} title={meta.desc}>
+      {meta.label}
+      {onDelete && (
+        <button onClick={() => onDelete(flag.id)} className="ml-0.5 hover:bg-black/10 rounded-full p-0.5 transition-colors">
+          <X className="h-2.5 w-2.5" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+function FlagPanel({ responseId }: { responseId: number }) {
+  const [open, setOpen] = useState(false);
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: flags = [], isLoading } = useResponseFlags(responseId, open || true);
+  const addFlag = useAddFlag();
+  const delFlag = useDeleteFlag();
+
+  const myFlagTypes = new Set((flags ?? []).filter((f) => f.createdBy === currentUnifiedUser?.id).map((f) => f.flagType));
+
+  async function handleAdd() {
+    if (!selectedType) return;
+    try {
+      await addFlag.mutateAsync({ responseId, flagType: selectedType, notes: noteText || undefined });
+      queryClient.invalidateQueries({ queryKey: ["response-flags", responseId] });
+      queryClient.invalidateQueries({ queryKey: ["analytics", "flag-stats"] });
+      setSelectedType(null);
+      setNoteText("");
+      toast({ title: "Flag added", description: `${FLAG_META[selectedType]?.label ?? selectedType} flagged.` });
+    } catch (e: any) {
+      toast({ title: "Failed", description: e?.error ?? "Already flagged", variant: "destructive" });
+    }
+  }
+
+  async function handleDelete(id: number) {
+    try {
+      await delFlag.mutateAsync(id);
+      queryClient.invalidateQueries({ queryKey: ["response-flags", responseId] });
+      queryClient.invalidateQueries({ queryKey: ["analytics", "flag-stats"] });
+    } catch (e: any) {
+      toast({ title: "Failed", description: e?.error ?? "Unknown error", variant: "destructive" });
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {/* Existing flags summary (always visible) */}
+      {(flags ?? []).length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {(flags ?? []).map((f) => (
+            <FlagBadge
+              key={f.id}
+              flag={f}
+              onDelete={f.createdBy === currentUnifiedUser?.id ? handleDelete : undefined}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Toggle */}
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
+      >
+        <Flag className="h-3 w-3" />
+        {open ? "Hide flag selector" : (flags ?? []).length === 0 ? "Add quality flag" : "Add another flag"}
+      </button>
+
+      {/* Flag selector */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/60 space-y-2.5" onClick={(e) => e.stopPropagation()}>
+              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1">
+                <Flag className="h-3 w-3" /> Quality Flags
+              </p>
+
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(FLAG_META).map(([type, meta]) => {
+                  const alreadyAdded = myFlagTypes.has(type);
+                  const selected = selectedType === type;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => setSelectedType(selected ? null : type)}
+                      disabled={alreadyAdded}
+                      title={alreadyAdded ? "Already flagged by you" : meta.desc}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
+                        alreadyAdded
+                          ? `${meta.bg} ${meta.border} ${meta.color} opacity-40 cursor-not-allowed`
+                          : selected
+                          ? `${meta.bg} ${meta.border} ${meta.color} ring-2 ring-offset-1 ring-current scale-105`
+                          : "bg-white border-border text-slate-500 hover:border-slate-300 hover:text-slate-700"
+                      }`}
+                    >
+                      {meta.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedType && (
+                <div className="space-y-2">
+                  <Textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    placeholder={`Optional note for "${FLAG_META[selectedType]?.label}"…`}
+                    className="text-xs min-h-[48px] resize-none bg-white"
+                    rows={2}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAdd}
+                      disabled={addFlag.isPending}
+                      className="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-700 text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                    >
+                      {addFlag.isPending ? "Saving…" : "Add Flag"}
+                    </button>
+                    <button onClick={() => { setSelectedType(null); setNoteText(""); }}
+                      className="px-3 py-1 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 // ── Human Evaluation Hooks ────────────────────────────────────────────────────
@@ -1286,6 +1488,11 @@ function OpenEndedQuestionRow({
                                 </div>
                               </div>
                             )}
+
+                            {/* ── Quality Flags ── */}
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <FlagPanel responseId={mr.responseId} />
+                            </div>
 
                             {/* ── Human Evaluation Panel ── */}
                             <div onClick={(e) => e.stopPropagation()}>
