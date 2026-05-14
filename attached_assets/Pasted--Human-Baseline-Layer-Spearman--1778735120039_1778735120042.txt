@@ -1,0 +1,276 @@
+# الخطوة الأولى — إضافة Human Baseline Layer وتصحيح حساب Spearman
+
+## الهدف الأكاديمي
+
+النظام الحالي يحسب تقييمات الـ Judge فقط، لكن حساب Spearman العلمي الحقيقي يتطلب مقارنة:
+
+| Human Evaluation | Judge Evaluation |
+| ---------------- | ---------------- |
+| 5                | 4                |
+| 3                | 3                |
+| 1                | 2                |
+
+أي:
+يجب وجود تقييم بشري حقيقي (Human Baseline) حتى نستطيع قياس مدى توافق الـ LLM Judge مع البشر.
+
+بدون Human Scores فإن Spearman الحالي غير أكاديمي بالكامل.
+
+---
+
+# المطلوب
+
+إضافة طبقة جديدة اسمها:
+
+```text
+human_evaluations
+```
+
+تُستخدم لتخزين تقييمات بشرية فعلية لردود النماذج.
+
+---
+
+# إنشاء جدول human_evaluations
+
+## الحقول المطلوبة
+
+| field             | type                             | description           |
+| ----------------- | -------------------------------- | --------------------- |
+| id                | uuid / serial PK                 | معرف التقييم          |
+| response_id       | FK → model_responses.id_response | الرد الذي يتم تقييمه  |
+| evaluator_user_id | FK → users.id                    | الشخص الذي قيّم       |
+| score             | integer                          | درجة بشرية من 1 إلى 5 |
+| reasoning         | text                             | سبب التقييم           |
+| created_at        | timestamp                        | وقت التقييم           |
+
+---
+
+# SQL المقترح
+
+```sql
+CREATE TABLE human_evaluations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    response_id UUID NOT NULL REFERENCES model_responses(id_response)
+    ON DELETE CASCADE,
+
+    evaluator_user_id UUID REFERENCES users(id),
+
+    score INTEGER NOT NULL CHECK (score BETWEEN 1 AND 5),
+
+    reasoning TEXT,
+
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+# لماذا هذا مهم جدًا؟
+
+لأن:
+الآن يصبح لدينا:
+
+| response | human_score | judge_score |
+| -------- | ----------- | ----------- |
+| R1       | 5           | 5           |
+| R2       | 3           | 4           |
+| R3       | 1           | 2           |
+
+وهذا هو المطلوب الحقيقي لحساب Spearman Correlation.
+
+---
+
+# ما هو Spearman Correlation؟
+
+Spearman هو مقياس إحصائي يقيس:
+
+> هل ترتيب تقييمات الـ Judge قريب من ترتيب تقييمات البشر؟
+
+---
+
+# تفسير القيم
+
+| القيمة     | المعنى         |
+| ---------- | -------------- |
+| 1.0        | تطابق كامل     |
+| 0.7 → 0.99 | توافق قوي      |
+| 0.3 → 0.6  | توافق متوسط    |
+| أقل من 0.3 | Judge ضعيف     |
+| 0          | لا يوجد ارتباط |
+| -1         | ارتباط عكسي    |
+
+---
+
+# القانون الرياضي
+
+يُحسب باستخدام:
+
+\rho = 1 - \frac{6 \sum d_i^2}{n(n^2 - 1)}
+
+حيث:
+
+| الرمز | المعنى                             |
+| ----- | ---------------------------------- |
+| dᵢ    | الفرق بين ترتيب الإنسان والـ Judge |
+| n     | عدد العينات                        |
+
+---
+
+# المطلوب برمجيًا
+
+إضافة خدمة جديدة:
+
+```text
+analytics/spearman.ts
+```
+
+أو:
+
+```text
+services/statistics.ts
+```
+
+---
+
+# المطلوب من الخدمة
+
+1. جلب:
+
+   * human scores
+   * judge scores
+
+2. بناء arrays
+
+مثال:
+
+```ts
+human = [5, 3, 1, 4]
+judge = [5, 4, 2, 4]
+```
+
+3. حساب Spearman
+
+4. إرجاع:
+
+   * correlation coefficient
+   * p-value
+   * sample size
+
+---
+
+# طريقة الحساب
+
+إذا كان المشروع Node.js:
+
+استخدام مكتبة:
+
+```bash
+npm install simple-statistics
+```
+
+أو:
+
+```bash
+npm install @stdlib/stats-spearman-rank-correlation
+```
+
+---
+
+# مثال حساب
+
+```ts
+import { spearmanRankCorrelation } from 'simple-statistics';
+
+const humanScores = [5, 3, 1, 4];
+const judgeScores = [5, 4, 2, 4];
+
+const rho = spearmanRankCorrelation(
+  humanScores,
+  judgeScores
+);
+
+console.log(rho);
+```
+
+---
+
+# المطلوب في واجهة Analytics
+
+إضافة بطاقة جديدة:
+
+```text
+Judge-Human Agreement
+```
+
+تحتوي:
+
+| العنصر         | القيمة           |
+| -------------- | ---------------- |
+| Spearman ρ     | 0.82             |
+| p-value        | 0.001            |
+| n              | 81               |
+| Interpretation | Strong Agreement |
+
+---
+
+# المطلوب أيضًا
+
+إذا لم توجد Human Evaluations كافية:
+
+إظهار:
+
+```text
+Not enough human evaluations to compute Spearman.
+```
+
+---
+
+# نقطة مهمة جدًا
+
+لا تستخدم:
+
+* Judge scores فقط
+* أو LLM reference answers فقط
+
+لحساب Spearman.
+
+يجب أن تكون المقارنة:
+
+```text
+Human Evaluation vs Judge Evaluation
+```
+
+وليس:
+
+```text
+Judge vs Judge
+```
+
+---
+
+# المطلوب في واجهة التقييم
+
+إضافة صفحة أو Modal تسمح للمستخدم:
+
+* باختيار Response
+* إعطاء:
+
+  * score من 1–5
+  * reasoning
+
+ثم حفظها داخل:
+
+```text
+human_evaluations
+```
+
+---
+
+# النتيجة النهائية المطلوبة
+
+بعد تنفيذ هذه الخطوة يصبح النظام:
+
+* أكاديميًا صحيحًا
+* متوافقًا مع متطلبات الدكتور
+* قادرًا على حساب Spearman الحقيقي
+* وقادرًا على تحليل مدى توافق الـ LLM Judge مع البشر
