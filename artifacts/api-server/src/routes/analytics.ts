@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, avg, count, sql, gte } from "drizzle-orm";
+import { eq, and, avg, count, sql, gte, min, max } from "drizzle-orm";
 import {
   db,
   modelsTable,
@@ -10,6 +10,7 @@ import {
   referenceAnswersTable,
   judgeModelsTable,
   humanEvaluationsTable,
+  responseFlagsTable,
 } from "@workspace/db";
 import { GetResultsQueryParams } from "@workspace/api-zod";
 
@@ -363,5 +364,327 @@ router.get("/analytics/spearman", async (_req, res): Promise<void> => {
     mcqAccuracy: mcqAccuracy != null ? Number(mcqAccuracy.toFixed(4)) : null,
   });
 });
+
+// GET /analytics/research-insights — full research presentation data
+router.get("/analytics/research-insights", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  // ── 1. Aggregate human vs judge pairs ──────────────────────────────────────
+  const pairsRaw = await db.execute(sql`
+    SELECT
+      je.id_eval,
+      je.response_id,
+      je.score            AS judge_score,
+      je.judge_model_id,
+      ha.avg_human,
+      ha.eval_count,
+      q.question_type,
+      mr.id_model,
+      ROUND(ABS(ha.avg_human::numeric - je.score), 2) AS delta,
+      CASE WHEN je.score > ha.avg_human THEN 'overrating'
+           WHEN je.score < ha.avg_human THEN 'underrating'
+           ELSE 'agree' END AS bias
+    FROM judge_evaluations je
+    INNER JOIN (
+      SELECT response_id,
+             AVG(score)::numeric  AS avg_human,
+             COUNT(*)             AS eval_count
+      FROM human_evaluations
+      GROUP BY response_id
+    ) ha ON ha.response_id = je.response_id
+    INNER JOIN model_responses mr ON mr.id_response = je.response_id
+    INNER JOIN questions q ON q.id_question = mr.id_question
+  `);
+  const pairs = pairsRaw.rows as {
+    id_eval: number; response_id: number; judge_score: number;
+    judge_model_id: number | null; avg_human: number; eval_count: number;
+    question_type: string; id_model: number; delta: number; bias: string;
+  }[];
+
+  const totalPairs = pairs.length;
+
+  // ── 2. Key Findings ──────────────────────────────────────────────────────────
+  const overratingPairs  = pairs.filter(p => p.bias === "overrating");
+  const underratingPairs = pairs.filter(p => p.bias === "underrating");
+  const overratingRate   = totalPairs > 0 ? Math.round((overratingPairs.length / totalPairs) * 1000) / 10 : 0;
+  const underratingRate  = totalPairs > 0 ? Math.round((underratingPairs.length / totalPairs) * 1000) / 10 : 0;
+
+  const openPairs = pairs.filter(p => p.question_type === "OPEN_ENDED");
+  const mcqPairs  = pairs.filter(p => p.question_type === "MCQ");
+  const avgDeltaOpen = openPairs.length > 0 ? openPairs.reduce((s, p) => s + Number(p.delta), 0) / openPairs.length : null;
+  const avgDeltaMcq  = mcqPairs.length > 0  ? mcqPairs.reduce((s, p) => s + Number(p.delta), 0) / mcqPairs.length   : null;
+
+  // Spearman human vs judge
+  let humanJudgeRho: number | null = null;
+  if (totalPairs >= 3) {
+    const xs = pairs.map(p => Number(p.avg_human));
+    const ys = pairs.map(p => Number(p.judge_score));
+    humanJudgeRho = Math.round(spearmanCorr(xs, ys) * 1000) / 1000;
+  }
+
+  // Flag stats
+  const flagStatsRaw = await db
+    .select({ flagType: responseFlagsTable.flagType, cnt: count(responseFlagsTable.id) })
+    .from(responseFlagsTable)
+    .groupBy(responseFlagsTable.flagType)
+    .orderBy(sql`count(${responseFlagsTable.id}) DESC`);
+  const totalFlags = flagStatsRaw.reduce((s, r) => s + Number(r.cnt), 0);
+  const topFlag = flagStatsRaw[0] ?? null;
+
+  // Avg judge score & avg human score
+  const [judgeAvgRow] = await db.select({ avg: avg(judgeEvaluationsTable.score) }).from(judgeEvaluationsTable);
+  const [humanAvgRow] = await db.select({ avg: avg(humanEvaluationsTable.score) }).from(humanEvaluationsTable);
+  const avgJudge = judgeAvgRow?.avg != null ? Math.round(Number(judgeAvgRow.avg) * 100) / 100 : null;
+  const avgHuman = humanAvgRow?.avg != null ? Math.round(Number(humanAvgRow.avg) * 100) / 100 : null;
+  const scoreBias = avgJudge != null && avgHuman != null ? Math.round((avgJudge - avgHuman) * 100) / 100 : null;
+
+  const keyFindings = [
+    {
+      id: "human_judge_agreement",
+      title: "Human–Judge Spearman ρ",
+      value: humanJudgeRho != null ? humanJudgeRho.toFixed(3) : "N/A",
+      subtext: totalPairs > 0 ? `${totalPairs} paired evaluations` : "No human evaluations yet",
+      trend: humanJudgeRho == null ? "neutral" : humanJudgeRho >= 0.7 ? "up" : humanJudgeRho >= 0.4 ? "neutral" : "down",
+      insight: humanJudgeRho == null
+        ? "Add human evaluations on the Results page to measure agreement."
+        : humanJudgeRho >= 0.7 ? "Strong human–judge alignment. Judge is reliable."
+        : humanJudgeRho >= 0.4 ? "Moderate alignment. Some systematic bias detected."
+        : "Low alignment. Judge behavior differs significantly from humans.",
+    },
+    {
+      id: "overrating_bias",
+      title: "Judge Overrating Rate",
+      value: totalPairs > 0 ? `${overratingRate}%` : "N/A",
+      subtext: totalPairs > 0 ? `${overratingPairs.length} of ${totalPairs} pairs` : "No paired evaluations",
+      trend: overratingRate > 40 ? "down" : overratingRate > 20 ? "neutral" : "up",
+      insight: overratingRate > 40
+        ? "Judge is strongly biased toward leniency. May reward verbosity or style over substance."
+        : overratingRate > 20
+        ? "Mild overrating tendency. Monitor for verbose or stylistically polished responses."
+        : totalPairs > 0 ? "Overrating is minimal. Judge scoring appears calibrated."
+        : "Run human evaluations to measure overrating.",
+    },
+    {
+      id: "score_gap",
+      title: "Score Gap (Judge − Human)",
+      value: scoreBias != null ? (scoreBias >= 0 ? `+${scoreBias}` : `${scoreBias}`) : "N/A",
+      subtext: avgJudge != null ? `Judge avg ${avgJudge} · Human avg ${avgHuman ?? "—"}` : "Insufficient data",
+      trend: scoreBias == null ? "neutral" : Math.abs(scoreBias) < 0.3 ? "up" : scoreBias > 0 ? "down" : "neutral",
+      insight: scoreBias == null
+        ? "No human evaluations to compare against."
+        : Math.abs(scoreBias) < 0.3 ? "Judge scores closely match human averages. Well-calibrated."
+        : scoreBias > 0 ? `Judge inflates scores by ~${scoreBias} points on average.`
+        : `Judge deflates scores by ~${Math.abs(scoreBias)} points on average.`,
+    },
+    {
+      id: "open_vs_mcq",
+      title: "Disagreement by Task Type",
+      value: avgDeltaOpen != null ? `Δ ${avgDeltaOpen.toFixed(2)} (open)` : "N/A",
+      subtext: avgDeltaMcq != null ? `Δ ${avgDeltaMcq.toFixed(2)} for MCQ` : "Open-ended only",
+      trend: avgDeltaOpen == null ? "neutral" : avgDeltaOpen > 1.5 ? "down" : avgDeltaOpen > 0.8 ? "neutral" : "up",
+      insight: avgDeltaOpen == null
+        ? "No open-ended human evaluations yet."
+        : avgDeltaOpen > 1.5
+        ? "High variance in open-ended tasks. Judge struggles with subjective assessment."
+        : avgDeltaOpen > 0.8
+        ? "Moderate disagreement on open-ended. Expected with free-form responses."
+        : "Low disagreement on open-ended. Judge is well-aligned with humans.",
+    },
+    {
+      id: "common_failure",
+      title: "Most Common Failure Mode",
+      value: topFlag != null ? topFlag.flagType.replace(/_/g, " ") : "None flagged",
+      subtext: topFlag != null ? `${topFlag.cnt} of ${totalFlags} total flags` : "No flags recorded yet",
+      trend: "neutral",
+      insight: topFlag == null
+        ? "No quality flags have been added. Flag responses on the Results page."
+        : topFlag.flagType === "PROMPT_LEAKAGE" ? "Prompt leakage detected. Review system prompt visibility."
+        : topFlag.flagType === "HALLUCINATION"  ? "Hallucinations are the top failure. Consider retrieval augmentation."
+        : topFlag.flagType === "OVER_VERBOSE"   ? "Models tend to over-explain. May inflate judge scores."
+        : topFlag.flagType === "FACTUAL_ERROR"  ? "Factual errors are frequent. Review knowledge cutoffs."
+        : topFlag.flagType === "PARTIAL_ANSWER" ? "Partial answers common. Models may lack domain depth."
+        : "Off-topic responses detected. Review prompt engineering.",
+    },
+    {
+      id: "underrating",
+      title: "Judge Underrating Rate",
+      value: totalPairs > 0 ? `${underratingRate}%` : "N/A",
+      subtext: totalPairs > 0 ? `${underratingPairs.length} of ${totalPairs} pairs` : "No paired evaluations",
+      trend: underratingRate > 40 ? "down" : underratingRate > 20 ? "neutral" : "up",
+      insight: underratingRate > 40
+        ? "Judge is overly strict. May penalise non-canonical wording even when semantically correct."
+        : underratingRate > 20
+        ? "Some underrating detected. Judge may miss paraphrase equivalences."
+        : totalPairs > 0 ? "Underrating is minimal." : "Run human evaluations to measure underrating.",
+    },
+  ];
+
+  // ── 3. Top Critical Cases ─────────────────────────────────────────────────
+  // Biggest disagreement
+  const biggestPair = pairs.sort((a, b) => Number(b.delta) - Number(a.delta))[0] ?? null;
+  let biggestDisagreement = null;
+  if (biggestPair) {
+    const [qRow] = await db.execute(sql`
+      SELECT q.question_text, mr.response_text, m.model_name
+      FROM model_responses mr
+      JOIN questions q ON q.id_question = mr.id_question
+      JOIN models m ON m.id_model = mr.id_model
+      WHERE mr.id_response = ${biggestPair.response_id}
+      LIMIT 1
+    `);
+    if (qRow) biggestDisagreement = {
+      responseId: biggestPair.response_id,
+      questionText: (qRow as any).question_text,
+      modelName: (qRow as any).model_name,
+      judgeScore: biggestPair.judge_score,
+      humanAvgScore: Math.round(Number(biggestPair.avg_human) * 100) / 100,
+      delta: Number(biggestPair.delta),
+      bias: biggestPair.bias,
+    };
+  }
+
+  // Most flagged responses per type
+  const flagsByResponseRaw = await db.execute(sql`
+    SELECT rf.response_id, rf.flag_type, COUNT(*) AS cnt,
+           q.question_text, mr.response_text, m.model_name
+    FROM response_flags rf
+    JOIN model_responses mr ON mr.id_response = rf.response_id
+    JOIN questions q ON q.id_question = mr.id_question
+    JOIN models m ON m.id_model = mr.id_model
+    GROUP BY rf.response_id, rf.flag_type, q.question_text, mr.response_text, m.model_name
+    ORDER BY cnt DESC
+  `);
+  const flagsByResponse = flagsByResponseRaw.rows as {
+    response_id: number; flag_type: string; cnt: number;
+    question_text: string; response_text: string; model_name: string;
+  }[];
+
+  const findTopFlag = (type: string) => flagsByResponse.find(r => r.flag_type === type) ?? null;
+  const topHallucination = findTopFlag("HALLUCINATION");
+  const topPromptLeakage = findTopFlag("PROMPT_LEAKAGE");
+
+  // Best judge agreement (smallest delta, min 1 human eval)
+  const bestPair = [...pairs].sort((a, b) => Number(a.delta) - Number(b.delta))[0] ?? null;
+  let bestAgreement = null;
+  if (bestPair) {
+    const [qRow] = await db.execute(sql`
+      SELECT q.question_text, mr.response_text, m.model_name
+      FROM model_responses mr
+      JOIN questions q ON q.id_question = mr.id_question
+      JOIN models m ON m.id_model = mr.id_model
+      WHERE mr.id_response = ${bestPair.response_id}
+      LIMIT 1
+    `);
+    if (qRow) bestAgreement = {
+      responseId: bestPair.response_id,
+      questionText: (qRow as any).question_text,
+      modelName: (qRow as any).model_name,
+      judgeScore: bestPair.judge_score,
+      humanAvgScore: Math.round(Number(bestPair.avg_human) * 100) / 100,
+      delta: Number(bestPair.delta),
+    };
+  }
+
+  const topCriticalCases = {
+    biggestDisagreement,
+    mostHallucinated: topHallucination ? {
+      responseId: topHallucination.response_id,
+      questionText: topHallucination.question_text,
+      modelName: topHallucination.model_name,
+      flagCount: Number(topHallucination.cnt),
+    } : null,
+    mostPromptLeakage: topPromptLeakage ? {
+      responseId: topPromptLeakage.response_id,
+      questionText: topPromptLeakage.question_text,
+      modelName: topPromptLeakage.model_name,
+      flagCount: Number(topPromptLeakage.cnt),
+    } : null,
+    bestAgreement,
+  };
+
+  // ── 4. Judge Reliability per model ─────────────────────────────────────────
+  const allJudgeModels = await db.select().from(judgeModelsTable);
+  const judgeModelMap = new Map(allJudgeModels.map(m => [m.id, m.displayName]));
+
+  const judgeGroups = new Map<number, typeof pairs>();
+  for (const p of pairs) {
+    const jid = p.judge_model_id ?? -1;
+    if (!judgeGroups.has(jid)) judgeGroups.set(jid, []);
+    judgeGroups.get(jid)!.push(p);
+  }
+
+  const judgeReliability = [...judgeGroups.entries()].map(([jid, jPairs]) => {
+    const n = jPairs.length;
+    const over  = jPairs.filter(p => p.bias === "overrating").length;
+    const under = jPairs.filter(p => p.bias === "underrating").length;
+    const avgD  = n > 0 ? Math.round(jPairs.reduce((s, p) => s + Number(p.delta), 0) / n * 100) / 100 : 0;
+    let rho: number | null = null;
+    if (n >= 3) {
+      const xs = jPairs.map(p => Number(p.avg_human));
+      const ys = jPairs.map(p => Number(p.judge_score));
+      rho = Math.round(spearmanCorr(xs, ys) * 1000) / 1000;
+    }
+    return {
+      judgeModelId: jid,
+      judgeModelName: judgeModelMap.get(jid) ?? `Judge #${jid}`,
+      n,
+      spearmanRho: rho,
+      overratingCount: over,
+      underratingCount: under,
+      overratingRate: n > 0 ? Math.round((over / n) * 1000) / 10 : 0,
+      underratingRate: n > 0 ? Math.round((under / n) * 1000) / 10 : 0,
+      avgDelta: avgD,
+    };
+  }).sort((a, b) => b.n - a.n);
+
+  // ── 5. Export bundle metadata ──────────────────────────────────────────────
+  const [respCount] = await db.select({ c: count() }).from(modelResponsesTable);
+  const [evalCount] = await db.select({ c: count() }).from(judgeEvaluationsTable);
+  const [humCount]  = await db.select({ c: count() }).from(humanEvaluationsTable);
+
+  res.json({
+    generatedAt: new Date().toISOString(),
+    summary: {
+      totalResponses: Number(respCount?.c ?? 0),
+      totalJudgeEvals: Number(evalCount?.c ?? 0),
+      totalHumanEvals: Number(humCount?.c ?? 0),
+      totalFlags,
+      totalPairs,
+      humanJudgeRho,
+      overratingRate,
+      underratingRate,
+      avgJudgeScore: avgJudge,
+      avgHumanScore: avgHuman,
+      scoreBias,
+    },
+    keyFindings,
+    topCriticalCases,
+    judgeReliability,
+    flagStats: flagStatsRaw.map(r => ({ flagType: r.flagType, count: Number(r.cnt) })),
+  });
+});
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function rankArr(arr: number[]): number[] {
+  const sorted = [...arr].map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v);
+  const ranks = new Array<number>(arr.length);
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j < sorted.length - 1 && sorted[j + 1].v === sorted[i].v) j++;
+    const r = (i + j) / 2 + 1;
+    for (let k = i; k <= j; k++) ranks[sorted[k].i] = r;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+function spearmanCorr(x: number[], y: number[]): number {
+  const n = x.length;
+  const rx = rankArr(x), ry = rankArr(y);
+  const d2 = rx.reduce((s, r, i) => s + (r - ry[i]) ** 2, 0);
+  return 1 - (6 * d2) / (n * (n * n - 1));
+}
 
 export default router;

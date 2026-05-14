@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cart
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain, Flag } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain, Flag, Download, FileText, FileJson, Printer, BookOpen, CheckCircle2, XCircle, Minus } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,487 @@ function SmallFlagBadge({ flagType }: { flagType: string }) {
     <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${meta.bg} ${meta.border} ${meta.color}`}>
       {meta.label}
     </span>
+  );
+}
+
+// ── Research Insights ─────────────────────────────────────────────────────────
+
+interface KeyFinding {
+  id: string;
+  title: string;
+  value: string;
+  subtext: string;
+  trend: "up" | "down" | "neutral";
+  insight: string;
+}
+
+interface CriticalCase {
+  responseId: number;
+  questionText: string;
+  modelName: string;
+  judgeScore?: number | null;
+  humanAvgScore?: number | null;
+  delta?: number;
+  bias?: string;
+  flagCount?: number;
+}
+
+interface JudgeReliability {
+  judgeModelId: number;
+  judgeModelName: string;
+  n: number;
+  spearmanRho: number | null;
+  overratingCount: number;
+  underratingCount: number;
+  overratingRate: number;
+  underratingRate: number;
+  avgDelta: number;
+}
+
+interface ResearchInsights {
+  generatedAt: string;
+  summary: {
+    totalResponses: number;
+    totalJudgeEvals: number;
+    totalHumanEvals: number;
+    totalFlags: number;
+    totalPairs: number;
+    humanJudgeRho: number | null;
+    overratingRate: number;
+    underratingRate: number;
+    avgJudgeScore: number | null;
+    avgHumanScore: number | null;
+    scoreBias: number | null;
+  };
+  keyFindings: KeyFinding[];
+  topCriticalCases: {
+    biggestDisagreement: CriticalCase | null;
+    mostHallucinated: CriticalCase | null;
+    mostPromptLeakage: CriticalCase | null;
+    bestAgreement: CriticalCase | null;
+  };
+  judgeReliability: JudgeReliability[];
+  flagStats: { flagType: string; count: number }[];
+}
+
+function useResearchInsights() {
+  return useQuery<ResearchInsights>({
+    queryKey: ["analytics", "research-insights"],
+    queryFn: () =>
+      fetch("/api/analytics/research-insights", { credentials: "include" }).then((r) => r.json()),
+    staleTime: 60_000,
+  });
+}
+
+// ── Export helpers ────────────────────────────────────────────────────────────
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportJSON(data: ResearchInsights) {
+  downloadBlob(
+    new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+    `medeval-research-${new Date().toISOString().slice(0, 10)}.json`
+  );
+}
+
+function exportCSV(data: ResearchInsights) {
+  const rows: string[][] = [];
+  rows.push(["Section", "Field", "Value"]);
+  rows.push(["Summary", "Total Responses", String(data.summary.totalResponses)]);
+  rows.push(["Summary", "Total Judge Evals", String(data.summary.totalJudgeEvals)]);
+  rows.push(["Summary", "Total Human Evals", String(data.summary.totalHumanEvals)]);
+  rows.push(["Summary", "Total Flags", String(data.summary.totalFlags)]);
+  rows.push(["Summary", "Paired Evaluations", String(data.summary.totalPairs)]);
+  rows.push(["Summary", "Human-Judge Spearman ρ", data.summary.humanJudgeRho?.toString() ?? "N/A"]);
+  rows.push(["Summary", "Overrating Rate %", String(data.summary.overratingRate)]);
+  rows.push(["Summary", "Underrating Rate %", String(data.summary.underratingRate)]);
+  rows.push(["Summary", "Avg Judge Score", data.summary.avgJudgeScore?.toString() ?? "N/A"]);
+  rows.push(["Summary", "Avg Human Score", data.summary.avgHumanScore?.toString() ?? "N/A"]);
+  rows.push(["Summary", "Score Bias (Judge−Human)", data.summary.scoreBias?.toString() ?? "N/A"]);
+  rows.push([]);
+  rows.push(["Key Finding", "Title", "Value", "Subtext", "Insight"]);
+  data.keyFindings.forEach(f => rows.push(["Key Finding", f.title, f.value, f.subtext, f.insight]));
+  rows.push([]);
+  rows.push(["Judge Reliability", "Judge Model", "N", "Spearman ρ", "Overrating %", "Underrating %", "Avg Δ"]);
+  data.judgeReliability.forEach(j => rows.push([
+    "Judge Reliability", j.judgeModelName, String(j.n),
+    j.spearmanRho?.toString() ?? "N/A",
+    String(j.overratingRate), String(j.underratingRate), String(j.avgDelta),
+  ]));
+  rows.push([]);
+  rows.push(["Flag Stats", "Flag Type", "Count"]);
+  data.flagStats.forEach(f => rows.push(["Flag Stats", f.flagType, String(f.count)]));
+
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  downloadBlob(new Blob([csv], { type: "text/csv" }), `medeval-research-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+function printReport(data: ResearchInsights) {
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>MedEval Judge — Research Report</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; margin: 40px; color: #1a1a2e; font-size: 13px; }
+  h1 { font-size: 22px; color: #16a34a; margin-bottom: 4px; }
+  h2 { font-size: 15px; border-bottom: 2px solid #e5e7eb; padding-bottom: 6px; margin-top: 28px; color: #374151; }
+  h3 { font-size: 13px; margin: 16px 0 6px; color: #6b7280; text-transform: uppercase; letter-spacing: .05em; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  th { background: #f3f4f6; text-align: left; padding: 7px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; }
+  td { padding: 7px 10px; border-bottom: 1px solid #e5e7eb; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .green { background: #dcfce7; color: #166534; }
+  .amber { background: #fef3c7; color: #92400e; }
+  .red   { background: #fee2e2; color: #991b1b; }
+  .meta  { color: #9ca3af; font-size: 11px; margin-bottom: 16px; }
+  .kf-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+  .kf-card { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; }
+  .kf-value { font-size: 22px; font-weight: 700; color: #16a34a; }
+  .kf-sub { font-size: 11px; color: #9ca3af; margin: 2px 0 6px; }
+  .kf-insight { font-size: 12px; color: #4b5563; }
+  @media print { body { margin: 20px; } }
+</style></head><body>
+<h1>MedEval Judge — Research Report</h1>
+<p class="meta">Generated: ${new Date(data.generatedAt).toLocaleString()} &nbsp;|&nbsp;
+  ${data.summary.totalJudgeEvals} judge evals &nbsp;|&nbsp;
+  ${data.summary.totalHumanEvals} human evals &nbsp;|&nbsp;
+  ${data.summary.totalFlags} flags &nbsp;|&nbsp;
+  ${data.summary.totalPairs} paired evaluations</p>
+
+<h2>Key Findings</h2>
+<div class="kf-grid">
+${data.keyFindings.map(f => `
+  <div class="kf-card">
+    <div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:.05em">${f.title}</div>
+    <div class="kf-value">${f.value}</div>
+    <div class="kf-sub">${f.subtext}</div>
+    <div class="kf-insight">${f.insight}</div>
+  </div>`).join("")}
+</div>
+
+<h2>Judge Reliability</h2>
+<table><thead><tr>
+  <th>Judge Model</th><th>N Pairs</th><th>Spearman ρ</th><th>Overrating %</th><th>Underrating %</th><th>Avg Δ</th>
+</tr></thead><tbody>
+${data.judgeReliability.map(j => `<tr>
+  <td><strong>${j.judgeModelName}</strong></td>
+  <td>${j.n}</td>
+  <td>${j.spearmanRho?.toFixed(3) ?? "—"}</td>
+  <td><span class="badge ${j.overratingRate > 40 ? "red" : j.overratingRate > 20 ? "amber" : "green"}">${j.overratingRate}%</span></td>
+  <td><span class="badge ${j.underratingRate > 40 ? "red" : j.underratingRate > 20 ? "amber" : "green"}">${j.underratingRate}%</span></td>
+  <td>${j.avgDelta}</td>
+</tr>`).join("")}
+</tbody></table>
+
+<h2>Flag Statistics</h2>
+<table><thead><tr><th>Flag Type</th><th>Count</th></tr></thead><tbody>
+${data.flagStats.map(f => `<tr><td>${f.flagType.replace(/_/g," ")}</td><td>${f.count}</td></tr>`).join("")}
+</tbody></table>
+
+<h2>Top Critical Cases</h2>
+${data.topCriticalCases.biggestDisagreement ? `
+  <h3>Biggest Disagreement</h3>
+  <table><tbody>
+    <tr><td><strong>Question:</strong></td><td>${data.topCriticalCases.biggestDisagreement.questionText}</td></tr>
+    <tr><td><strong>Model:</strong></td><td>${data.topCriticalCases.biggestDisagreement.modelName}</td></tr>
+    <tr><td><strong>Judge Score:</strong></td><td>${data.topCriticalCases.biggestDisagreement.judgeScore}</td></tr>
+    <tr><td><strong>Human Avg:</strong></td><td>${data.topCriticalCases.biggestDisagreement.humanAvgScore}</td></tr>
+    <tr><td><strong>Δ:</strong></td><td>${data.topCriticalCases.biggestDisagreement.delta}</td></tr>
+    <tr><td><strong>Bias:</strong></td><td>${data.topCriticalCases.biggestDisagreement.bias}</td></tr>
+  </tbody></table>` : "<p style='color:#9ca3af'>No disagreements recorded yet.</p>"}
+
+<p class="meta" style="margin-top:40px">MedEval Judge — AI Evaluation Research Platform</p>
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); win.print(); }
+}
+
+// ── Research Insights Section ─────────────────────────────────────────────────
+
+function TrendIcon({ trend }: { trend: "up" | "down" | "neutral" }) {
+  if (trend === "up")      return <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />;
+  if (trend === "down")    return <XCircle className="h-4 w-4 text-red-500 shrink-0" />;
+  return <Minus className="h-4 w-4 text-amber-500 shrink-0" />;
+}
+
+function ResearchInsightsSection() {
+  const { data, isLoading } = useResearchInsights();
+  const [reliabilityExpanded, setReliabilityExpanded] = useState(true);
+
+  const hasData = data && data.summary.totalPairs > 0;
+
+  return (
+    <div className="space-y-5">
+      {/* Section header + Export */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-primary" />
+          <h2 className="text-base font-semibold">Research Insights</h2>
+        </div>
+
+        {data && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground mr-1">Export:</span>
+            <button
+              onClick={() => exportJSON(data)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+            >
+              <FileJson className="h-3.5 w-3.5" />
+              JSON
+            </button>
+            <button
+              onClick={() => exportCSV(data)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </button>
+            <button
+              onClick={() => printReport(data)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-white text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              PDF
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Summary ribbon */}
+      {!isLoading && data && (
+        <div className="flex flex-wrap gap-3">
+          {[
+            { label: "Responses", value: data.summary.totalResponses },
+            { label: "Judge Evals", value: data.summary.totalJudgeEvals },
+            { label: "Human Evals", value: data.summary.totalHumanEvals },
+            { label: "Paired", value: data.summary.totalPairs },
+            { label: "Flags", value: data.summary.totalFlags },
+          ].map(s => (
+            <div key={s.label} className="flex flex-col items-center px-4 py-2 rounded-xl border border-border bg-muted/30 min-w-[72px]">
+              <span className="text-xl font-bold tabular-nums">{s.value}</span>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{s.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Key Findings cards */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Key Findings</p>
+        {isLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {(data?.keyFindings ?? []).map((f) => (
+              <motion.div
+                key={f.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-xl border border-border bg-white p-4 space-y-1.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide leading-tight">{f.title}</p>
+                  <TrendIcon trend={f.trend as "up" | "down" | "neutral"} />
+                </div>
+                <p className={`text-2xl font-bold tabular-nums ${
+                  f.trend === "up" ? "text-green-600" : f.trend === "down" ? "text-red-600" : "text-amber-600"
+                }`}>{f.value}</p>
+                <p className="text-[10px] text-muted-foreground">{f.subtext}</p>
+                <p className="text-xs text-foreground/70 leading-relaxed pt-0.5 border-t border-border">{f.insight}</p>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Top Critical Cases */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Top Critical Cases</p>
+        {isLoading ? (
+          <Skeleton className="h-32 w-full rounded-xl" />
+        ) : !hasData ? (
+          <Card className="border-dashed">
+            <CardContent className="py-6 text-center text-sm text-muted-foreground">
+              Add human evaluations on the Results page to unlock critical case analysis.
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {/* Biggest Disagreement */}
+            <CriticalCaseCard
+              title="Biggest Disagreement"
+              icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />}
+              borderColor="border-red-200"
+              bg="bg-red-50/30"
+              entry={data?.topCriticalCases.biggestDisagreement ?? null}
+              badge={data?.topCriticalCases.biggestDisagreement
+                ? `Δ ${data.topCriticalCases.biggestDisagreement.delta?.toFixed(1)} · ${data.topCriticalCases.biggestDisagreement.bias}`
+                : null}
+            />
+            {/* Best Agreement */}
+            <CriticalCaseCard
+              title="Best Judge Agreement"
+              icon={<CheckCircle2 className="h-3.5 w-3.5 text-green-500" />}
+              borderColor="border-green-200"
+              bg="bg-green-50/30"
+              entry={data?.topCriticalCases.bestAgreement ?? null}
+              badge={data?.topCriticalCases.bestAgreement
+                ? `Δ ${data.topCriticalCases.bestAgreement.delta?.toFixed(1)} · ${data.topCriticalCases.bestAgreement.judgeScore}/5`
+                : null}
+            />
+            {/* Most Hallucinated */}
+            <CriticalCaseCard
+              title="Most Hallucinations"
+              icon={<XCircle className="h-3.5 w-3.5 text-purple-500" />}
+              borderColor="border-purple-200"
+              bg="bg-purple-50/30"
+              entry={data?.topCriticalCases.mostHallucinated ?? null}
+              badge={data?.topCriticalCases.mostHallucinated
+                ? `${data.topCriticalCases.mostHallucinated.flagCount} flag${(data.topCriticalCases.mostHallucinated.flagCount ?? 0) > 1 ? "s" : ""}`
+                : null}
+            />
+            {/* Most Prompt Leakage */}
+            <CriticalCaseCard
+              title="Prompt Leakage"
+              icon={<Flag className="h-3.5 w-3.5 text-orange-500" />}
+              borderColor="border-orange-200"
+              bg="bg-orange-50/30"
+              entry={data?.topCriticalCases.mostPromptLeakage ?? null}
+              badge={data?.topCriticalCases.mostPromptLeakage
+                ? `${data.topCriticalCases.mostPromptLeakage.flagCount} flag${(data.topCriticalCases.mostPromptLeakage.flagCount ?? 0) > 1 ? "s" : ""}`
+                : null}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Judge Reliability table */}
+      <div>
+        <button
+          className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 hover:text-foreground transition-colors"
+          onClick={() => setReliabilityExpanded(v => !v)}
+        >
+          Judge Reliability Summary
+          {reliabilityExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+
+        <AnimatePresence>
+          {reliabilityExpanded && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              {isLoading ? (
+                <Skeleton className="h-24 w-full rounded-xl" />
+              ) : !data || data.judgeReliability.length === 0 ? (
+                <Card className="border-dashed">
+                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                    No judge reliability data yet. Run evaluations and add human reviews.
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto rounded-xl">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/40">
+                            <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judge Model</th>
+                            <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">N Pairs</th>
+                            <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Spearman ρ</th>
+                            <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Overrating</th>
+                            <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Underrating</th>
+                            <th className="text-center px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Avg Δ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.judgeReliability.map((j, i) => (
+                            <tr key={j.judgeModelId} className={`border-b border-border last:border-0 ${i % 2 === 0 ? "" : "bg-muted/20"}`}>
+                              <td className="px-4 py-3 font-medium">{j.judgeModelName}</td>
+                              <td className="px-3 py-3 text-center font-mono text-muted-foreground">{j.n}</td>
+                              <td className="px-3 py-3 text-center">
+                                {j.spearmanRho != null ? (
+                                  <span className={`font-bold tabular-nums ${j.spearmanRho >= 0.7 ? "text-green-600" : j.spearmanRho >= 0.4 ? "text-amber-600" : "text-red-600"}`}>
+                                    {j.spearmanRho.toFixed(3)}
+                                  </span>
+                                ) : <span className="text-muted-foreground text-xs">—</span>}
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                                  j.overratingRate > 40 ? "bg-red-50 border-red-200 text-red-700"
+                                  : j.overratingRate > 20 ? "bg-amber-50 border-amber-200 text-amber-700"
+                                  : "bg-green-50 border-green-200 text-green-700"
+                                }`}>
+                                  <TrendingUp className="h-2.5 w-2.5 mr-1" />
+                                  {j.overratingRate}%
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                                  j.underratingRate > 40 ? "bg-red-50 border-red-200 text-red-700"
+                                  : j.underratingRate > 20 ? "bg-amber-50 border-amber-200 text-amber-700"
+                                  : "bg-green-50 border-green-200 text-green-700"
+                                }`}>
+                                  <TrendingDown className="h-2.5 w-2.5 mr-1" />
+                                  {j.underratingRate}%
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center font-mono text-sm font-semibold">
+                                <span className={j.avgDelta >= 2 ? "text-red-600" : j.avgDelta >= 1 ? "text-amber-600" : "text-green-600"}>
+                                  {j.avgDelta.toFixed(2)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+function CriticalCaseCard({
+  title, icon, borderColor, bg, entry, badge,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  borderColor: string;
+  bg: string;
+  entry: CriticalCase | null;
+  badge: string | null;
+}) {
+  return (
+    <div className={`rounded-xl border ${borderColor} ${bg} p-4 space-y-2`}>
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          {icon}{title}
+        </p>
+        {badge && entry && (
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${borderColor} bg-white text-foreground`}>
+            {badge}
+          </span>
+        )}
+      </div>
+      {entry ? (
+        <div className="space-y-1">
+          <p className="text-sm font-medium line-clamp-2 leading-snug">{entry.questionText}</p>
+          <p className="text-xs text-muted-foreground font-mono">{entry.modelName}</p>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground py-2">No data yet</p>
+      )}
+    </div>
   );
 }
 
@@ -614,6 +1095,9 @@ export default function Analytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Research Insights ── */}
+      <ResearchInsightsSection />
 
       {/* ── Flag Stats ── */}
       <FlagStatsSection />
