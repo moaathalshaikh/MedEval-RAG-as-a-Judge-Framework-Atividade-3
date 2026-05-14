@@ -12,6 +12,7 @@ import {
   LogOut,
   Sparkles,
   Clock,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -52,6 +53,12 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "/results", label: "Results", icon: List },
       { path: "/analytics", label: "Analytics", icon: BarChart2 },
       { path: "/history", label: "History", icon: Clock },
+    ],
+  },
+  {
+    label: "Documentation",
+    items: [
+      { path: "/methodology", label: "Methodology", icon: BookOpen },
     ],
   },
 ];

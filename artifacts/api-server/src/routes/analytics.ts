@@ -372,8 +372,8 @@ router.get("/analytics/research-insights", async (req, res): Promise<void> => {
   // ── 1. Aggregate human vs judge pairs ──────────────────────────────────────
   const pairsRaw = await db.execute(sql`
     SELECT
-      je.id_eval,
-      je.response_id,
+      je.id_evaluation,
+      je.id_response,
       je.score            AS judge_score,
       je.judge_model_id,
       ha.avg_human,
@@ -391,12 +391,12 @@ router.get("/analytics/research-insights", async (req, res): Promise<void> => {
              COUNT(*)             AS eval_count
       FROM human_evaluations
       GROUP BY response_id
-    ) ha ON ha.response_id = je.response_id
-    INNER JOIN model_responses mr ON mr.id_response = je.response_id
+    ) ha ON ha.response_id = je.id_response
+    INNER JOIN model_responses mr ON mr.id_response = je.id_response
     INNER JOIN questions q ON q.id_question = mr.id_question
   `);
   const pairs = pairsRaw.rows as {
-    id_eval: number; response_id: number; judge_score: number;
+    id_evaluation: number; id_response: number; judge_score: number;
     judge_model_id: number | null; avg_human: number; eval_count: number;
     question_type: string; id_model: number; delta: number; bias: string;
   }[];
@@ -529,11 +529,11 @@ router.get("/analytics/research-insights", async (req, res): Promise<void> => {
       FROM model_responses mr
       JOIN questions q ON q.id_question = mr.id_question
       JOIN models m ON m.id_model = mr.id_model
-      WHERE mr.id_response = ${biggestPair.response_id}
+      WHERE mr.id_response = ${biggestPair.id_response}
       LIMIT 1
     `);
     if (qRow) biggestDisagreement = {
-      responseId: biggestPair.response_id,
+      responseId: biggestPair.id_response,
       questionText: (qRow as any).question_text,
       modelName: (qRow as any).model_name,
       judgeScore: biggestPair.judge_score,
@@ -572,11 +572,11 @@ router.get("/analytics/research-insights", async (req, res): Promise<void> => {
       FROM model_responses mr
       JOIN questions q ON q.id_question = mr.id_question
       JOIN models m ON m.id_model = mr.id_model
-      WHERE mr.id_response = ${bestPair.response_id}
+      WHERE mr.id_response = ${bestPair.id_response}
       LIMIT 1
     `);
     if (qRow) bestAgreement = {
-      responseId: bestPair.response_id,
+      responseId: bestPair.id_response,
       questionText: (qRow as any).question_text,
       modelName: (qRow as any).model_name,
       judgeScore: bestPair.judge_score,

@@ -1,0 +1,296 @@
+الآن بصراحة المشروع دخل مرحلة قوية جدًا أكاديميًا.
+ما لديكم حاليًا يشبه:
+
+# منصات تقييم LLM البحثية الحديثة
+
+وليس مجرد مشروع مادة.
+
+والأهم:
+
+## أصبح عندكم “قصة بحثية” كاملة.
+
+---
+
+# ما الذي أصبح واضحًا الآن؟
+
+النظام لم يعد فقط:
+
+* يخزن النتائج
+* أو يعرض Scores
+
+بل أصبح:
+
+# يفسّر سلوك الـ Judges والـ Models.
+
+وهذا هو الجزء الحقيقي المهم في النشاط.
+
+---
+
+# أكثر شيء ناجح في التنفيذ الحالي
+
+## Research Insights
+
+هذه الإضافة ممتازة جدًا لأنها:
+
+* تحول البيانات إلى استنتاجات
+* وتحوّل النظام من Dashboard إلى Research Narrative
+
+---
+
+# ما الذي أعجبني جدًا؟
+
+## 1) Key Findings مبنية من بيانات حقيقية
+
+هذه نقطة مهمة جدًا.
+
+لأن الكثير من المشاريع تعرض:
+
+* metrics فقط
+
+أما أنتم الآن تعرضون:
+
+* interpretations
+* trends
+* behavioral patterns
+
+---
+
+# 2) Judge Reliability Table
+
+هذه ممتازة جدًا للدكتور.
+
+لأنها تحقق فكرة:
+
+# “من يقيّم الـ Judge نفسه؟”
+
+والآن عندكم:
+
+* Spearman
+* Overrating
+* Underrating
+* Avg gap
+
+وهذا قوي جدًا.
+
+---
+
+# 3) Export Layer
+
+ممتاز للفيديو والتقرير النهائي.
+
+خصوصًا:
+
+* CSV
+* PDF-ready
+
+هذه ستسهّل عليكم كثيرًا.
+
+---
+
+# الآن أهم نصيحة
+
+# توقفوا عن إضافة Features كبيرة.
+
+المشروع الآن غني جدًا بالفعل.
+
+---
+
+# لماذا أقول هذا؟
+
+لأن الخطر الآن هو:
+
+## over-engineering
+
+ولو استمررتم قد:
+
+* تتشتت الفكرة الأساسية
+* أو يصبح النظام معقدًا أكثر من المطلوب
+
+---
+
+# ما الذي يجب التركيز عليه الآن؟
+
+# 1) جودة الـ Dataset
+
+هذه أهم نقطة حاليًا.
+
+---
+
+# لأن قوة النظام الآن تعتمد على:
+
+| الشيء                      | أهميته     |
+| -------------------------- | ---------- |
+| أمثلة disagreement قوية    | عالية جدًا |
+| حالات hallucination حقيقية | عالية جدًا |
+| Prompt leakage cases       | عالية جدًا |
+| Open-ended متنوعة          | عالية جدًا |
+
+---
+
+# 2) إعداد سيناريو العرض
+
+الآن المشروع يحتاج:
+
+# Storytelling
+
+وليس Features جديدة.
+
+---
+
+# كيف سيكون العرض القوي؟
+
+## البداية
+
+“Traditional metrics مثل BLEU/ROUGE غير كافية.”
+
+---
+
+## ثم
+
+“لذلك بنينا Human-aligned LLM Evaluation Platform.”
+
+---
+
+## ثم
+
+عرض:
+
+* Spearman
+* disagreements
+* hallucinations
+* prompt leakage
+
+---
+
+## ثم
+
+عرض:
+
+> حالات فشل الـ Judge
+
+وهذه أقوى نقطة في المشروع كله.
+
+---
+
+# 3) نقطة مهمة جدًا قبل التسليم
+
+## لا تسموا الـ LLM Reference:
+
+> Ground Truth
+
+أبدًا.
+
+---
+
+# استخدموا دائمًا:
+
+| المصطلح الصحيح            |
+| ------------------------- |
+| Synthetic Reference       |
+| Judge-generated Reference |
+| LLM Reference             |
+
+---
+
+# لأن:
+
+## Gold Answer الحقيقي هو المرجع الأكاديمي.
+
+---
+
+# الشيء الوحيد الذي أنصح بإضافته الآن
+
+ليس Feature جديدة،
+بل:
+
+# Documentation Layer
+
+---
+
+# أقترح الخطوة الأخيرة تقريبًا
+
+# الخطوة التالية — Academic Documentation Layer
+
+## الهدف
+
+إضافة صفحات وصفية تساعد أثناء:
+
+* الفيديو النهائي
+* العرض
+* التقرير الأكاديمي
+
+بدون تغيير الـ backend الأساسي.
+
+---
+
+# المطلوب
+
+إضافة صفحة:
+
+```text id="d0m75x"
+Methodology
+```
+
+---
+
+# تحتوي:
+
+## 1) System Pipeline
+
+عرض بصري:
+
+```text id="tb10pb"
+Dataset
+→ Candidate Model
+→ Judge Model
+→ Human Evaluation
+→ Spearman
+→ Disagreement Analysis
+→ Research Insights
+```
+
+---
+
+## 2) Evaluation Methodology
+
+شرح:
+
+* كيف يعمل الـ Judge
+* كيف تُحسب Human averages
+* كيف يُحسب Spearman
+* معنى Overrating / Underrating
+
+---
+
+## 3) Error Taxonomy
+
+شرح جميع الـ flags:
+
+| Flag           | Description                        |
+| -------------- | ---------------------------------- |
+| PROMPT_LEAKAGE | Model repeated instructions        |
+| HALLUCINATION  | Fabricated information             |
+| OVER_VERBOSE   | Excessively long misleading answer |
+| FACTUAL_ERROR  | Medically or legally incorrect     |
+| PARTIAL_ANSWER | Incomplete response                |
+| OFF_TOPIC      | Irrelevant answer                  |
+
+---
+
+## 4) Judge Reliability Explanation
+
+شرح:
+
+* Spearman interpretation
+* Agreement meaning
+* Statistical significance
+
+---
+
+# الهدف
+
+هذه الصفحة ستجعل:
+
+* الفيديو أسهل
+* التقرير أسهل
+* والنظام يبدو أكاديميًا ومنظمًا جدًا.
