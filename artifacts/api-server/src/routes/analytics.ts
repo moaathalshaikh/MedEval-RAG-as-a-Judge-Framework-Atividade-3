@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, avg, count, sql } from "drizzle-orm";
+import { eq, and, avg, count, sql, gte } from "drizzle-orm";
 import {
   db,
   modelsTable,
@@ -9,6 +9,7 @@ import {
   judgeEvaluationsTable,
   referenceAnswersTable,
   judgeModelsTable,
+  humanEvaluationsTable,
 } from "@workspace/db";
 import { GetResultsQueryParams } from "@workspace/api-zod";
 
@@ -192,6 +193,85 @@ router.get("/analytics/results", async (req, res): Promise<void> => {
       referenceAnswers: refEntries.map(e => ({ answerText: e.answerText, judgeModelName: buildJudgeName(e) })),
     };
   }));
+});
+
+// GET /analytics/disagreements?threshold=2&limit=10
+router.get("/analytics/disagreements", async (req, res): Promise<void> => {
+  const threshold = req.query.threshold ? parseFloat(req.query.threshold as string) : 2;
+  const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+
+  // Aggregate human evals per response
+  const humanAgg = db
+    .select({
+      responseId: humanEvaluationsTable.responseId,
+      avgHuman: avg(humanEvaluationsTable.score).as("avg_human"),
+      evalCount: count(humanEvaluationsTable.id).as("eval_count"),
+      humanReasonings: sql<string>`string_agg(${humanEvaluationsTable.reasoning}, ' || ')`.as("human_reasonings"),
+    })
+    .from(humanEvaluationsTable)
+    .groupBy(humanEvaluationsTable.responseId)
+    .as("ha");
+
+  const rows = await db
+    .select({
+      responseId: modelResponsesTable.id,
+      questionText: questionsTable.questionText,
+      responseText: modelResponsesTable.responseText,
+      modelName: modelsTable.modelName,
+      judgeScore: judgeEvaluationsTable.score,
+      judgeReasoning: judgeEvaluationsTable.reasoning,
+      judgeModelId: judgeEvaluationsTable.judgeModelId,
+      humanAvg: humanAgg.avgHuman,
+      humanCount: humanAgg.evalCount,
+      humanReasonings: humanAgg.humanReasonings,
+      delta: sql<number>`ABS(${humanAgg.avgHuman}::numeric - ${judgeEvaluationsTable.score})`,
+    })
+    .from(judgeEvaluationsTable)
+    .innerJoin(humanAgg, eq(humanAgg.responseId, judgeEvaluationsTable.responseId))
+    .innerJoin(modelResponsesTable, eq(modelResponsesTable.id, judgeEvaluationsTable.responseId))
+    .innerJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
+    .innerJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId))
+    .where(
+      sql`ABS(${humanAgg.avgHuman}::numeric - ${judgeEvaluationsTable.score}) >= ${threshold}`
+    )
+    .orderBy(sql`ABS(${humanAgg.avgHuman}::numeric - ${judgeEvaluationsTable.score}) DESC`)
+    .limit(limit);
+
+  const allJudgeModels = await db.select().from(judgeModelsTable);
+  const judgeMap = new Map(allJudgeModels.map((m) => [m.id, m.displayName]));
+
+  res.json(
+    rows.map((r) => {
+      const humanAvg = r.humanAvg != null ? Number(r.humanAvg) : null;
+      const judgeScore = r.judgeScore ?? null;
+      const delta = humanAvg != null && judgeScore != null
+        ? Math.round(Math.abs(humanAvg - judgeScore) * 100) / 100
+        : null;
+      const bias =
+        humanAvg != null && judgeScore != null
+          ? judgeScore > humanAvg
+            ? "overrating"
+            : "underrating"
+          : null;
+
+      return {
+        responseId: r.responseId,
+        questionText: r.questionText,
+        responseText: r.responseText,
+        modelName: r.modelName,
+        judgeScore,
+        judgeReasoning: r.judgeReasoning ?? null,
+        judgeModelName: r.judgeModelId ? (judgeMap.get(r.judgeModelId) ?? null) : null,
+        humanAvgScore: humanAvg != null ? Math.round(humanAvg * 100) / 100 : null,
+        humanEvalCount: Number(r.humanCount ?? 0),
+        humanReasonings: r.humanReasonings
+          ? r.humanReasonings.split(" || ").filter(Boolean)
+          : [],
+        disagreementDelta: delta,
+        bias,
+      };
+    })
+  );
 });
 
 router.get("/analytics/spearman", async (_req, res): Promise<void> => {

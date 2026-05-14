@@ -1,8 +1,288 @@
 import { useGetModelComparison, useGetScoreDistribution, useGetSpearmanCorrelation } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine } from "recharts";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain } from "lucide-react";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface DisagreementEntry {
+  responseId: number;
+  questionText: string;
+  responseText: string;
+  modelName: string;
+  judgeScore: number | null;
+  judgeReasoning: string | null;
+  judgeModelName: string | null;
+  humanAvgScore: number | null;
+  humanEvalCount: number;
+  humanReasonings: string[];
+  disagreementDelta: number | null;
+  bias: "overrating" | "underrating" | null;
+}
+
+// ── Disagreement Analysis ─────────────────────────────────────────────────────
+
+function useDisagreements(threshold: number, limit: number) {
+  return useQuery<DisagreementEntry[]>({
+    queryKey: ["analytics", "disagreements", threshold, limit],
+    queryFn: () =>
+      fetch(`/api/analytics/disagreements?threshold=${threshold}&limit=${limit}`, {
+        credentials: "include",
+      }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+}
+
+const SCORE_DOT: Record<number, string> = {
+  1: "bg-red-500",
+  2: "bg-orange-400",
+  3: "bg-yellow-400",
+  4: "bg-blue-500",
+  5: "bg-green-500",
+};
+
+function ScorePill({ score, label }: { score: number | null; label: string }) {
+  if (score == null) return <span className="text-xs text-muted-foreground">—</span>;
+  const rounded = Math.round(score);
+  const dotClass = SCORE_DOT[Math.min(5, Math.max(1, rounded))] ?? "bg-gray-400";
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-bold bg-white border border-border shadow-sm`}>
+        <span className={`w-2 h-2 rounded-full ${dotClass}`} />
+        {typeof score === "number" && !Number.isInteger(score) ? score.toFixed(1) : score}
+        <span className="text-xs text-muted-foreground font-normal">/5</span>
+      </span>
+    </div>
+  );
+}
+
+function BiasBadge({ bias }: { bias: "overrating" | "underrating" | null }) {
+  if (!bias) return null;
+  return bias === "overrating" ? (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 border border-amber-200 text-amber-700">
+      <TrendingUp className="h-3 w-3" />
+      Overrating
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 border border-blue-200 text-blue-700">
+      <TrendingDown className="h-3 w-3" />
+      Underrating
+    </span>
+  );
+}
+
+function DisagreementCard({ entry, rank }: { entry: DisagreementEntry; rank: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const isCritical = (entry.disagreementDelta ?? 0) >= 3;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: rank * 0.04 }}
+      className={`rounded-xl border overflow-hidden ${
+        isCritical
+          ? "border-red-200 bg-red-50/30"
+          : "border-orange-200 bg-orange-50/20"
+      }`}
+    >
+      {/* Header row */}
+      <div
+        className="flex items-start gap-3 p-4 cursor-pointer"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {/* Rank badge */}
+        <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border ${
+          isCritical ? "bg-red-100 border-red-300 text-red-700" : "bg-orange-100 border-orange-300 text-orange-700"
+        }`}>
+          {rank}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0 space-y-2">
+          <p className="text-sm font-medium leading-snug line-clamp-2">{entry.questionText}</p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">
+              {entry.modelName}
+            </span>
+            {entry.judgeModelName && (
+              <span className="text-xs text-muted-foreground">
+                Judge: <span className="font-medium">{entry.judgeModelName}</span>
+              </span>
+            )}
+            <BiasBadge bias={entry.bias} />
+            {entry.humanEvalCount > 1 && (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <Users className="h-3 w-3" />
+                {entry.humanEvalCount} reviewers
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Scores + delta */}
+        <div className="flex-shrink-0 flex items-center gap-3">
+          <ScorePill score={entry.judgeScore} label="Judge" />
+          <div className="flex flex-col items-center gap-1">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Δ</span>
+            <span className={`text-lg font-bold tabular-nums ${
+              isCritical ? "text-red-600" : "text-orange-600"
+            }`}>
+              {entry.disagreementDelta?.toFixed(1)}
+            </span>
+          </div>
+          <ScorePill score={entry.humanAvgScore} label="Human" />
+          <div className="ml-1 text-muted-foreground">
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded details */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden border-t border-border/60"
+          >
+            <div className="p-4 pt-3 space-y-3 bg-white/60">
+              {/* Model response */}
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Model Response</p>
+                <div className="text-sm leading-relaxed bg-blue-50 border border-blue-100 rounded-lg p-3 text-blue-900 max-h-[120px] overflow-y-auto">
+                  {entry.responseText}
+                </div>
+              </div>
+
+              {/* Judge reasoning */}
+              {entry.judgeReasoning && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide flex items-center gap-1">
+                    <Brain className="h-3 w-3" />
+                    Judge Reasoning
+                  </p>
+                  <div className="text-sm leading-relaxed bg-amber-50 border border-amber-100 rounded-lg p-3 text-amber-900 max-h-[120px] overflow-y-auto whitespace-pre-wrap">
+                    {entry.judgeReasoning}
+                  </div>
+                </div>
+              )}
+
+              {/* Human reasonings */}
+              {entry.humanReasonings.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide flex items-center gap-1">
+                    <Users className="h-3 w-3" />
+                    Human Reasoning{entry.humanReasonings.length > 1 ? "s" : ""}
+                  </p>
+                  <div className="space-y-1.5">
+                    {entry.humanReasonings.map((r, i) => (
+                      <div key={i} className="text-sm leading-relaxed bg-violet-50 border border-violet-100 rounded-lg p-3 text-violet-900">
+                        {r}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function DisagreementSection() {
+  const [threshold, setThreshold] = useState(2);
+  const [limit] = useState(10);
+  const { data, isLoading } = useDisagreements(threshold, limit);
+
+  const overrating = data?.filter((d) => d.bias === "overrating").length ?? 0;
+  const underrating = data?.filter((d) => d.bias === "underrating").length ?? 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Section header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-orange-500" />
+          <h2 className="text-base font-semibold">Disagreement Analysis</h2>
+          <span className="text-xs text-muted-foreground">— Top 10 Most Disagreed Responses</span>
+        </div>
+
+        {/* Threshold selector */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Min Δ:</span>
+          {[1, 2, 3].map((t) => (
+            <button
+              key={t}
+              onClick={() => setThreshold(t)}
+              className={`px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                threshold === t
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-white border-border hover:border-primary/50"
+              }`}
+            >
+              ≥{t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Summary pills */}
+      {!isLoading && data && data.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-muted border border-border">
+            <span className="font-bold text-foreground">{data.length}</span> disagreements found
+          </span>
+          {overrating > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 border border-amber-200 text-amber-700">
+              <TrendingUp className="h-3 w-3" />
+              {overrating} Overrating
+            </span>
+          )}
+          {underrating > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 border border-blue-200 text-blue-700">
+              <TrendingDown className="h-3 w-3" />
+              {underrating} Underrating
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Cards */}
+      {isLoading ? (
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+        </div>
+      ) : !data || data.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="py-10 text-center text-sm text-muted-foreground">
+            <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            No disagreements found with Δ ≥ {threshold}.<br />
+            <span className="text-xs">Add human evaluations on the Results page to enable this analysis.</span>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {data.map((entry, i) => (
+            <DisagreementCard key={entry.responseId} entry={entry} rank={i + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Analytics Page ───────────────────────────────────────────────────────
 
 export default function Analytics() {
   const { data: comparison, isLoading: isLoadingComparison } = useGetModelComparison();
@@ -158,6 +438,9 @@ export default function Analytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Disagreement Analysis ── */}
+      <DisagreementSection />
     </motion.div>
   );
 }
