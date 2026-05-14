@@ -259,34 +259,41 @@ function SummaryStats({
                   Score Distribution — {totalEvaluated} evaluations
                 </p>
               </div>
-              <div className="flex gap-1.5 h-16 items-end overflow-hidden">
+              {/* Horizontal stacked bar */}
+              <div className="flex h-7 rounded-lg overflow-hidden w-full">
                 {[5, 4, 3, 2, 1].map((s) => {
                   const count = scoreDist[s] ?? 0;
                   const pct = totalEvaluated > 0 ? (count / totalEvaluated) * 100 : 0;
+                  if (pct === 0) return null;
                   const meta = SCORE_META[s];
                   return (
-                    <div key={s} className="flex-1 flex flex-col items-end gap-1 h-full">
-                      <div className="flex-1 w-full flex items-end">
-                        <div
-                          className={`w-full rounded-t-sm ${meta.bar} transition-all`}
-                          style={{ height: `${Math.max(3, pct)}%` }}
-                          title={`Score ${s}: ${count} (${pct.toFixed(0)}%)`}
-                        />
-                      </div>
-                      <span className={`text-[10px] font-bold ${meta.text} leading-none`}>{s}</span>
+                    <div
+                      key={s}
+                      className={`${meta.bar} flex items-center justify-center transition-all`}
+                      style={{ width: `${pct}%` }}
+                      title={`Score ${s} — ${meta.label}: ${count} (${pct.toFixed(0)}%)`}
+                    >
+                      {pct >= 8 && (
+                        <span className="text-[10px] font-bold text-white drop-shadow-sm select-none">
+                          {pct.toFixed(0)}%
+                        </span>
+                      )}
                     </div>
                   );
                 })}
               </div>
-              <div className="flex gap-3 mt-3 flex-wrap">
+              {/* Legend */}
+              <div className="flex gap-3 mt-2 flex-wrap">
                 {[5, 4, 3, 2, 1].map((s) => {
                   const count = scoreDist[s] ?? 0;
                   const pct = totalEvaluated > 0 ? (count / totalEvaluated) * 100 : 0;
                   const meta = SCORE_META[s];
                   return (
                     <div key={s} className="flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-sm ${meta.bar}`} />
-                      <span className="text-[10px] text-muted-foreground">{meta.label}: {pct.toFixed(0)}%</span>
+                      <span className={`w-2.5 h-2.5 rounded-sm ${meta.bar} shrink-0`} />
+                      <span className="text-[10px] text-muted-foreground">
+                        {meta.label}: <span className="font-semibold text-foreground">{pct.toFixed(0)}%</span>
+                      </span>
                     </div>
                   );
                 })}
