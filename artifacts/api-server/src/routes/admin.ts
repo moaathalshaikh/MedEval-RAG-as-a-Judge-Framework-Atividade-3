@@ -165,12 +165,12 @@ router.get("/admin/research-export", async (req, res): Promise<void> => {
   const rows = await db
     .select({
       question_id: questionsTable.id,
-      dataset_name: datasetsTable.name,
+      dataset_name: datasetsTable.datasetName,
       question_type: questionsTable.questionType,
       question_text: questionsTable.questionText,
       gold_answer: questionsTable.goldAnswer,
       response_id: modelResponsesTable.id,
-      model_name: modelsTable.name,
+      model_name: modelsTable.modelName,
       response_text: modelResponsesTable.responseText,
       inference_time_ms: modelResponsesTable.inferenceTimeMs,
       judge_score: judgeEvaluationsTable.score,
