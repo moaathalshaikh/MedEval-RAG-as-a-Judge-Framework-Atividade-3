@@ -9,3 +9,4 @@ export * from "./judge_models";
 export * from "./reference_answers";
 export * from "./activity_log";
 export * from "./prompts";
+export * from "./human_evaluations";

@@ -11,6 +11,7 @@ import settingsRouter from "./settings";
 import referenceAnswersRouter from "./reference-answers";
 import activityLogRouter from "./activity-log";
 import promptsRouter from "./prompts";
+import humanEvaluationsRouter from "./human-evaluations";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(settingsRouter);
 router.use(referenceAnswersRouter);
 router.use(activityLogRouter);
 router.use(promptsRouter);
+router.use(humanEvaluationsRouter);
 
 export default router;

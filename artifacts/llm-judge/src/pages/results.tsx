@@ -3,14 +3,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useMemo } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useCallback } from "react";
+import { useQueryClient, useQuery, useMutation } from "@tanstack/react-query";
 import { ScoreBadge } from "@/components/score-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp } from "lucide-react";
+import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp, UserCheck, Users, BarChart3 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -360,6 +361,345 @@ function SummaryStats({
   return null;
 }
 
+// ── Human Evaluation Hooks ────────────────────────────────────────────────────
+
+interface HumanEvalEntry {
+  id: number;
+  responseId: number;
+  evaluatorUserId: string;
+  score: number;
+  reasoning: string | null;
+  createdAt: string;
+}
+
+interface HumanEvalData {
+  evaluations: HumanEvalEntry[];
+  myEval: HumanEvalEntry | null;
+  avgScore: number | null;
+  count: number;
+}
+
+function useHumanEval(responseId: number, enabled: boolean) {
+  return useQuery<HumanEvalData>({
+    queryKey: ["human-evaluations", responseId],
+    queryFn: () =>
+      fetch(`/api/human-evaluations?responseId=${responseId}`, { credentials: "include" }).then((r) => r.json()),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+function useUpsertHumanEval() {
+  return useMutation<HumanEvalEntry, { error?: string }, { responseId: number; score: number; reasoning?: string }>({
+    mutationFn: (body) =>
+      fetch("/api/human-evaluations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      }).then(async (r) => {
+        if (!r.ok) throw await r.json();
+        return r.json();
+      }),
+  });
+}
+
+function useDeleteHumanEval() {
+  return useMutation<void, { error?: string }, number>({
+    mutationFn: (id) =>
+      fetch(`/api/human-evaluations/${id}`, { method: "DELETE", credentials: "include" }).then(async (r) => {
+        if (!r.ok) throw await r.json();
+      }),
+  });
+}
+
+// ── Human Evaluation Panel ────────────────────────────────────────────────────
+
+const HE_SCORE_META: Record<number, { label: string; color: string; bg: string; border: string }> = {
+  5: { label: "Excellent", color: "text-green-700",  bg: "bg-green-50",  border: "border-green-300"  },
+  4: { label: "Good",      color: "text-blue-700",   bg: "bg-blue-50",   border: "border-blue-300"   },
+  3: { label: "Partial",   color: "text-amber-700",  bg: "bg-amber-50",  border: "border-amber-300"  },
+  2: { label: "Weak",      color: "text-orange-700", bg: "bg-orange-50", border: "border-orange-300" },
+  1: { label: "Critical",  color: "text-red-700",    bg: "bg-red-50",    border: "border-red-300"    },
+};
+
+function HumanEvalPanel({ responseId, hasJudgeScore }: { responseId: number; hasJudgeScore: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const [pendingScore, setPendingScore] = useState<number | null>(null);
+  const [pendingReasoning, setPendingReasoning] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data, isLoading } = useHumanEval(responseId, expanded);
+  const upsert = useUpsertHumanEval();
+  const del = useDeleteHumanEval();
+
+  const myEval = data?.myEval ?? null;
+
+  function openPanel() {
+    setExpanded(true);
+    if (myEval) {
+      setPendingScore(myEval.score);
+      setPendingReasoning(myEval.reasoning ?? "");
+    }
+  }
+
+  // When data loads, sync form with existing eval
+  useMemo(() => {
+    if (myEval && expanded) {
+      setPendingScore(myEval.score);
+      setPendingReasoning(myEval.reasoning ?? "");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myEval?.id]);
+
+  async function handleSave() {
+    if (!pendingScore) return;
+    try {
+      await upsert.mutateAsync({ responseId, score: pendingScore, reasoning: pendingReasoning || undefined });
+      queryClient.invalidateQueries({ queryKey: ["human-evaluations", responseId] });
+      queryClient.invalidateQueries({ queryKey: ["analytics", "spearman"] });
+      toast({ title: "Human evaluation saved", description: `Score ${pendingScore}/5 recorded.` });
+    } catch (e: any) {
+      toast({ title: "Save failed", description: e?.error ?? "Unknown error", variant: "destructive" });
+    }
+  }
+
+  async function handleDelete() {
+    if (!myEval) return;
+    try {
+      await del.mutateAsync(myEval.id);
+      queryClient.invalidateQueries({ queryKey: ["human-evaluations", responseId] });
+      queryClient.invalidateQueries({ queryKey: ["analytics", "spearman"] });
+      setPendingScore(null);
+      setPendingReasoning("");
+      toast({ title: "Your evaluation removed" });
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e?.error ?? "Unknown error", variant: "destructive" });
+    }
+  }
+
+  if (!hasJudgeScore) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-dashed border-border text-xs text-muted-foreground">
+        <UserCheck className="h-3.5 w-3.5 shrink-0" />
+        Human review available after judge evaluation
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Trigger row */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); expanded ? setExpanded(false) : openPanel(); }}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+            myEval
+              ? "bg-violet-50 border-violet-200 text-violet-700 hover:bg-violet-100"
+              : "bg-muted/40 border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+          }`}
+        >
+          <UserCheck className="h-3.5 w-3.5" />
+          {myEval ? `My Review: ${myEval.score}/5` : "Add Human Review"}
+        </button>
+
+        {data && data.count > 0 && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Users className="h-3 w-3" />
+            {data.count} {data.count === 1 ? "reviewer" : "reviewers"}
+            {data.avgScore != null && (
+              <span className="font-medium text-foreground">· avg {data.avgScore.toFixed(1)}</span>
+            )}
+          </span>
+        )}
+      </div>
+
+      {/* Expanded panel */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="p-4 rounded-lg border border-violet-200 bg-violet-50/30 space-y-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide flex items-center gap-1.5">
+                  <UserCheck className="h-3.5 w-3.5" />
+                  Human Evaluation
+                </p>
+                {myEval && (
+                  <Button variant="ghost" size="sm" className="h-6 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 px-2"
+                    onClick={handleDelete} disabled={del.isPending}>
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Remove mine
+                  </Button>
+                )}
+              </div>
+
+              {isLoading ? (
+                <Skeleton className="h-8 w-full" />
+              ) : (
+                <>
+                  {/* Score selector */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground font-medium">Your Score</p>
+                    <div className="flex gap-1.5">
+                      {[5, 4, 3, 2, 1].map((s) => {
+                        const meta = HE_SCORE_META[s];
+                        const selected = pendingScore === s;
+                        return (
+                          <button
+                            key={s}
+                            onClick={() => setPendingScore(s)}
+                            className={`flex-1 flex flex-col items-center py-2 rounded-lg border-2 transition-all text-xs font-bold ${
+                              selected
+                                ? `${meta.bg} ${meta.border} ${meta.color} scale-105 shadow-sm`
+                                : "bg-white border-border text-muted-foreground hover:border-violet-200"
+                            }`}
+                          >
+                            <span className="text-base">{s}</span>
+                            <span className={`text-[9px] font-medium hidden sm:block ${selected ? meta.color : ""}`}>{meta.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Reasoning */}
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground font-medium">Reasoning <span className="font-normal">(optional)</span></p>
+                    <Textarea
+                      value={pendingReasoning}
+                      onChange={(e) => setPendingReasoning(e.target.value)}
+                      placeholder="Why did you give this score?"
+                      className="text-sm min-h-[60px] resize-none bg-white"
+                      rows={2}
+                    />
+                  </div>
+
+                  <Button
+                    size="sm"
+                    className="w-full gap-2 bg-violet-600 hover:bg-violet-700 text-white"
+                    onClick={handleSave}
+                    disabled={!pendingScore || upsert.isPending}
+                  >
+                    {upsert.isPending ? "Saving…" : myEval ? "Update Review" : "Save Review"}
+                  </Button>
+
+                  {/* Other reviewers summary */}
+                  {data && data.count > 1 && (
+                    <div className="pt-1 border-t border-violet-100">
+                      <p className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+                        <Users className="h-3 w-3" /> All reviews ({data.count})
+                      </p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {data.evaluations.map((ev) => {
+                          const meta = HE_SCORE_META[ev.score];
+                          const isMe = ev.evaluatorUserId === currentUnifiedUser?.id;
+                          return (
+                            <span key={ev.id}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${meta.bg} ${meta.border} ${meta.color}`}>
+                              {ev.score}/5
+                              {isMe && <span className="text-[9px] opacity-70">(you)</span>}
+                            </span>
+                          );
+                        })}
+                        {data.avgScore != null && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border bg-violet-100 border-violet-300 text-violet-700 font-semibold">
+                            avg {data.avgScore.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Spearman Card ─────────────────────────────────────────────────────────────
+
+interface SpearmanData {
+  rho: number | null;
+  n: number;
+  totalHumanEvals: number;
+  interpretation: string | null;
+  message: string | null;
+}
+
+function SpearmanCard({ datasetId, modelId }: { datasetId?: number; modelId?: number }) {
+  const params = new URLSearchParams();
+  if (datasetId) params.set("datasetId", datasetId.toString());
+  if (modelId) params.set("modelId", modelId.toString());
+
+  const { data, isLoading } = useQuery<SpearmanData>({
+    queryKey: ["analytics", "spearman", datasetId, modelId],
+    queryFn: () =>
+      fetch(`/api/analytics/spearman?${params}`, { credentials: "include" }).then((r) => r.json()),
+    staleTime: 30_000,
+  });
+
+  const rhoColor = data?.rho == null
+    ? "text-muted-foreground"
+    : data.rho >= 0.7 ? "text-green-600"
+    : data.rho >= 0.4 ? "text-amber-600"
+    : "text-red-600";
+
+  return (
+    <Card className="border-violet-200 bg-violet-50/20">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart3 className="h-4 w-4 text-violet-600" />
+          <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide">
+            Judge–Human Agreement (Spearman ρ)
+          </p>
+        </div>
+        {isLoading ? (
+          <Skeleton className="h-8 w-full" />
+        ) : data?.rho != null ? (
+          <div className="flex items-center gap-6 flex-wrap">
+            <div className="text-center">
+              <p className={`text-3xl font-bold tabular-nums ${rhoColor}`}>{data.rho.toFixed(3)}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">ρ (rho)</p>
+            </div>
+            <div className="w-px bg-border h-10" />
+            <div className="text-center">
+              <p className="text-xl font-bold">{data.n}</p>
+              <p className="text-xs text-muted-foreground">Paired evaluations</p>
+            </div>
+            <div className="w-px bg-border h-10" />
+            <div className="text-center">
+              <p className="text-xl font-bold">{data.totalHumanEvals}</p>
+              <p className="text-xs text-muted-foreground">Human reviews</p>
+            </div>
+            <div className="flex-1 min-w-[120px]">
+              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                data.rho >= 0.7 ? "bg-green-50 border-green-200 text-green-700"
+                : data.rho >= 0.4 ? "bg-amber-50 border-amber-200 text-amber-700"
+                : "bg-red-50 border-red-200 text-red-700"
+              }`}>
+                {data.interpretation}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {data?.message ?? "Add human evaluations to compute Spearman correlation."}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Results() {
@@ -507,6 +847,14 @@ export default function Results() {
             openEndedGroups={openEndedGroups}
             mcqGroups={mcqGroups}
             activeTab={activeTab}
+          />
+        )}
+
+        {/* ── Spearman card — open-ended only ── */}
+        {!isLoading && activeTab === "open_ended" && (
+          <SpearmanCard
+            datasetId={datasetId !== "all" && datasetId !== "" ? parseInt(datasetId) : undefined}
+            modelId={modelId !== "all" && modelId !== "" ? parseInt(modelId) : undefined}
           />
         )}
 
@@ -938,6 +1286,14 @@ function OpenEndedQuestionRow({
                                 </div>
                               </div>
                             )}
+
+                            {/* ── Human Evaluation Panel ── */}
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <HumanEvalPanel
+                                responseId={mr.responseId}
+                                hasJudgeScore={mr.score != null}
+                              />
+                            </div>
 
                             <div className="flex gap-2 flex-wrap pt-1">
                               {mr.evaluationId && canDelete(mr.evaluationCreatedBy) && (
