@@ -16,7 +16,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, LogOut, Wifi, WifiOff, Loader2, AlertCircle, ShieldCheck } from "lucide-react";
+import { Check, X, LogOut, Wifi, WifiOff, Loader2, AlertCircle, ShieldCheck, Database, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -398,9 +398,10 @@ export default function Settings() {
 
       {/* ── Tabs ── */}
       <Tabs defaultValue="judge" className="w-full">
-        <TabsList className="w-full grid grid-cols-2 h-10">
+        <TabsList className="w-full grid grid-cols-3 h-10">
           <TabsTrigger value="judge" className="text-sm">Judge & API Keys</TabsTrigger>
           <TabsTrigger value="prompts" className="text-sm">Prompts</TabsTrigger>
+          <TabsTrigger value="data" className="text-sm">Data & Backup</TabsTrigger>
         </TabsList>
 
         {/* ── Tab 1: Judge & API Keys ── */}
@@ -785,7 +786,118 @@ export default function Settings() {
         <TabsContent value="prompts" className="mt-5">
           <PromptsTab />
         </TabsContent>
+
+        {/* ── Tab 3: Data & Backup ── */}
+        <TabsContent value="data" className="mt-5 space-y-4">
+          <DbBackupCard />
+        </TabsContent>
       </Tabs>
     </motion.div>
+  );
+}
+
+// ── Database Backup Card ──────────────────────────────────────────────────────
+
+function DbBackupCard() {
+  const { toast } = useToast();
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [lastBackup, setLastBackup] = useState<string | null>(null);
+
+  async function handleBackup() {
+    setIsDownloading(true);
+    try {
+      const res = await fetch("/api/admin/db-backup", { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? `medeval-backup-${new Date().toISOString().slice(0,19).replace(/[:.]/g,"-")}.db`;
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const now = new Date().toLocaleString();
+      setLastBackup(now);
+      toast({ title: "Backup downloaded", description: filename });
+    } catch (err: any) {
+      toast({ title: "Backup failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Database className="h-4 w-4 text-primary" />
+          Database Backup
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Exports a full PostgreSQL dump of all evaluation data — questions, responses, scores,
+          human evaluations, flags, and settings — as a plain-SQL <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">.db</code> file
+          that can be restored with <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">psql</code>.
+        </p>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
+          <p className="font-semibold text-foreground text-[11px] uppercase tracking-wide">What's included</p>
+          {[
+            "All datasets, questions, and gold answers",
+            "All SLM model responses and inference logs",
+            "All judge evaluations with scores and reasoning",
+            "All human evaluations",
+            "Response quality flags",
+            "Judge models, prompts, and settings",
+            "Activity log and reference answers",
+          ].map((item) => (
+            <div key={item} className="flex items-center gap-2">
+              <Check className="h-3 w-3 text-green-500 shrink-0" />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+
+        {lastBackup && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Check className="h-3 w-3 text-green-500" />
+            Last backup: {lastBackup}
+          </p>
+        )}
+
+        <Button
+          onClick={handleBackup}
+          disabled={isDownloading}
+          className="w-full gap-2"
+        >
+          {isDownloading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Generating backup…
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4" />
+              Download Database Backup (.db)
+            </>
+          )}
+        </Button>
+
+        <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
+          Restore with: <code className="font-mono bg-muted px-1 py-0.5 rounded">psql $DATABASE_URL &lt; backup.db</code>
+        </p>
+      </CardContent>
+    </Card>
   );
 }

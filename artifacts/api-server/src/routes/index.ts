@@ -13,6 +13,7 @@ import activityLogRouter from "./activity-log";
 import promptsRouter from "./prompts";
 import humanEvaluationsRouter from "./human-evaluations";
 import responseFlagsRouter from "./response-flags";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(activityLogRouter);
 router.use(promptsRouter);
 router.use(humanEvaluationsRouter);
 router.use(responseFlagsRouter);
+router.use(adminRouter);
 
 export default router;
