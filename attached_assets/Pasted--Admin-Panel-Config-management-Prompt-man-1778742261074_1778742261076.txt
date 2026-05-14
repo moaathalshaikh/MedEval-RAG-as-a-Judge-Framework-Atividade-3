@@ -1,0 +1,249 @@
+الإضافة ممتازة جدًا 👌
+والآن الـ Admin Panel صار فعليًا يحتوي:
+
+* Config management
+* Prompt management
+* PI keys
+* Full research export pipeline
+* Disaster recovery
+
+وهذا بالضبط ما تحتاجه أي منصة تقييم LLMs حقيقية.
+
+لكن بما أنكم وصلتم لهذه المرحلة، فهناك نقطة معمارية مهمة جدًا الآن:
+
+# أنتم تحتاجون نوعين من الـ backups وليس نوعًا واحدًا فقط
+
+---
+
+# 1) Full SQL Backup (الذي أضفتموه الآن)
+
+هذا ممتاز لـ:
+
+* disaster recovery
+* migration
+* restoring server state
+* reproducibility
+
+ويبقى:
+
+```bash id="9b2ez8"
+psql $DATABASE_URL < backup.sql
+```
+
+---
+
+# 2) Research Export (منفصل)
+
+وهذا مهم جدًا للبحث العلمي.
+
+---
+
+# لماذا؟
+
+لأن الباحث غالبًا لا يريد:
+
+* users
+* logs
+* internal tables
+* sessions
+* tokens
+* audit data
+
+بل يريد فقط:
+
+* questions
+* model outputs
+* scores
+* judges
+* labels
+* annotations
+
+في:
+
+* CSV
+* JSONL
+* parquet
+
+---
+
+# لذلك الأفضل معماريًا
+
+## قسمين منفصلين:
+
+---
+
+# Database Backup
+
+لـ:
+
+* restore
+* infra
+* DevOps
+
+---
+
+# Research Export
+
+لـ:
+
+* analysis
+* papers
+* statistics
+* ML pipelines
+
+---
+
+# هذا الفصل مهم جدًا
+
+لأن كثير منصات التقييم تقع في خطأ:
+
+## خلط operational backup مع research datasets
+
+وهما ليسا الشيء نفسه.
+
+---
+
+# نقطة ثانية مهمة جدًا
+
+إذا عندكم:
+
+* prompts
+* evaluations
+* judge reasoning
+
+فأنصحكم تضيفون:
+
+# Backup metadata manifest
+
+مثل:
+
+```json id="lcow5t"
+{
+  "platform_version": "1.4.0",
+  "backup_created_at": "2026-05-14T03:57:39Z",
+  "postgres_version": "16",
+  "schema_version": "28",
+  "included_tables": [...],
+  "excluded_tables": [...]
+}
+```
+
+---
+
+# لماذا هذا مهم؟
+
+لأن بعد سنة ستواجهون:
+
+* schema drift
+* migrations
+* changed prompts
+* changed judges
+
+والـ manifest ينقذكم جدًا.
+
+---
+
+# أيضًا نقطة أمنية مهمة جدًا
+
+إذا backup يحتوي:
+
+* human evaluator names
+* emails
+* reviewer comments
+
+فلا تجعل:
+
+# Download Backup
+
+متاحًا لأي admin عادي.
+
+---
+
+# الأفضل:
+
+Role:
+
+```text id="9f0v2g"
+SUPER_ADMIN
+```
+
+فقط.
+
+---
+
+# وأفضل ممارسة إضافية
+
+اعملوا:
+
+# signed backups
+
+يعني:
+
+* SHA256 checksum
+* optional encryption
+
+---
+
+# مثال ممتاز:
+
+```text id="68j7d6"
+backup.sql
+backup.sha256
+```
+
+---
+
+# تحسين UI بسيط لكنه مهم
+
+بدل:
+
+```text id="5usn0i"
+Last backup: ...
+```
+
+الأفضل:
+
+```text id="h48mzl"
+Last successful backup
+```
+
+لأن:
+
+* backup قد يفشل
+* قد ينقطع
+* قد يكون corrupted
+
+---
+
+# شيء أخير مهم جدًا
+
+إذا الـ backup يتم runtime من production DB:
+
+لا تستخدموا:
+
+```bash id="d9n5vj"
+pg_dump
+```
+
+بشكل sync داخل request مباشرة.
+
+---
+
+# الأفضل:
+
+* background job
+* stream download
+* temporary signed URL
+
+خصوصًا إذا البيانات ستكبر لاحقًا.
+
+---
+
+بصراحة التطور الحالي للمشروع واضح جدًا أنه تجاوز مرحلة:
+“واجهة تعرض تقييمات”
+
+وصار:
+
+# Evaluation Infrastructure Platform
+
+وهذا فرق معماري كبير جدًا.

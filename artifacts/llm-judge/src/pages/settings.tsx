@@ -16,7 +16,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, X, LogOut, Wifi, WifiOff, Loader2, AlertCircle, ShieldCheck, Database, Download } from "lucide-react";
+import { Check, X, LogOut, Wifi, WifiOff, Loader2, AlertCircle, ShieldCheck, Database, Download, FlaskConical, FileText, FileJson } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -790,10 +790,31 @@ export default function Settings() {
         {/* ── Tab 3: Data & Backup ── */}
         <TabsContent value="data" className="mt-5 space-y-4">
           <DbBackupCard />
+          <ResearchExportCard />
         </TabsContent>
       </Tabs>
     </motion.div>
   );
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function sha256Hex(buf: ArrayBuffer): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 // ── Database Backup Card ──────────────────────────────────────────────────────
@@ -813,22 +834,26 @@ function DbBackupCard() {
       }
 
       const disposition = res.headers.get("Content-Disposition") ?? "";
-      const match = disposition.match(/filename="([^"]+)"/);
-      const filename = match?.[1] ?? `medeval-backup-${new Date().toISOString().slice(0,19).replace(/[:.]/g,"-")}.sql`;
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename =
+        filenameMatch?.[1] ??
+        `medeval-backup-${new Date().toISOString().slice(0, 19).replace(/[:.]/g, "-")}.sql`;
 
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const arrayBuf = await res.arrayBuffer();
 
-      const now = new Date().toLocaleString();
-      setLastBackup(now);
-      toast({ title: "Backup downloaded", description: filename });
+      // Download .sql
+      triggerDownload(new Blob([arrayBuf], { type: "application/octet-stream" }), filename);
+
+      // Compute SHA-256 and download .sha256 sidecar
+      const hex = await sha256Hex(arrayBuf);
+      const checksumContent = `${hex}  ${filename}\n`;
+      triggerDownload(new Blob([checksumContent], { type: "text/plain" }), `${filename}.sha256`);
+
+      setLastBackup(new Date().toLocaleString());
+      toast({
+        title: "Backup downloaded",
+        description: `${filename} + .sha256 checksum`,
+      });
     } catch (err: any) {
       toast({ title: "Backup failed", description: err.message, variant: "destructive" });
     } finally {
@@ -848,8 +873,11 @@ function DbBackupCard() {
         <p className="text-sm text-muted-foreground leading-relaxed">
           Exports a full PostgreSQL SQL dump of the MedEval evaluation platform, including
           datasets, responses, evaluations, human reviews, flags, prompts, and analytics metadata.
-          Generated using <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pg_dump</code> and
-          can be restored using <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">psql</code>.
+          Generated using{" "}
+          <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">pg_dump</code> and
+          can be restored using{" "}
+          <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">psql</code>.
+          A backup manifest with row counts and schema metadata is embedded at the top of the file.
         </p>
 
         <div className="rounded-lg border border-border bg-muted/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
@@ -882,15 +910,11 @@ function DbBackupCard() {
         {lastBackup && (
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Check className="h-3 w-3 text-green-500" />
-            Last backup: {lastBackup}
+            Last successful backup: {lastBackup}
           </p>
         )}
 
-        <Button
-          onClick={handleBackup}
-          disabled={isDownloading}
-          className="w-full gap-2"
-        >
+        <Button onClick={handleBackup} disabled={isDownloading} className="w-full gap-2">
           {isDownloading ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -899,13 +923,130 @@ function DbBackupCard() {
           ) : (
             <>
               <Download className="h-4 w-4" />
-              Download Database Backup (.sql)
+              Download Backup (.sql + .sha256)
+            </>
+          )}
+        </Button>
+
+        <div className="rounded-lg bg-muted/40 px-3 py-2.5 space-y-1 text-[10px] text-muted-foreground font-mono">
+          <p>Verify:  sha256sum -c backup.sql.sha256</p>
+          <p>Restore: psql $DATABASE_URL &lt; backup.sql</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Research Export Card ──────────────────────────────────────────────────────
+
+function ResearchExportCard() {
+  const { toast } = useToast();
+  const [format, setFormat] = useState<"csv" | "jsonl">("csv");
+  const [isExporting, setIsExporting] = useState(false);
+
+  async function handleExport() {
+    setIsExporting(true);
+    try {
+      const res = await fetch(`/api/admin/research-export?format=${format}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
+        throw new Error(err.error ?? `HTTP ${res.status}`);
+      }
+
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename =
+        filenameMatch?.[1] ??
+        `medeval-research-${new Date().toISOString().slice(0, 19).replace(/[:.]/g, "-")}.${format}`;
+
+      const blob = await res.blob();
+      triggerDownload(blob, filename);
+      toast({ title: "Research export downloaded", description: filename });
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FlaskConical className="h-4 w-4 text-primary" />
+          Research Export
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Exports only the research-relevant data — questions, model outputs, scores, judge
+          reasoning, and human annotations — without operational metadata, logs, or internal
+          tables. Suitable for statistical analysis, ML pipelines, and academic reporting.
+        </p>
+
+        <div className="rounded-lg border border-border bg-muted/30 p-3.5 space-y-1.5 text-xs text-muted-foreground">
+          <p className="font-semibold text-foreground text-[11px] uppercase tracking-wide">What's included</p>
+          {[
+            "Questions, question types, and gold answers",
+            "Model responses and inference times",
+            "Judge scores, reasoning, and judge model identity",
+            "Human evaluator scores and annotations",
+          ].map((item) => (
+            <div key={item} className="flex items-center gap-2">
+              <Check className="h-3 w-3 text-green-500 shrink-0" />
+              <span>{item}</span>
+            </div>
+          ))}
+          {[
+            "User accounts, emails, or session data",
+            "Internal logs, tokens, or settings",
+          ].map((item) => (
+            <div key={item} className="flex items-center gap-2">
+              <X className="h-3 w-3 text-red-400 shrink-0" />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            variant={format === "csv" ? "default" : "outline"}
+            size="sm"
+            className="flex-1 gap-1.5"
+            onClick={() => setFormat("csv")}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            CSV
+          </Button>
+          <Button
+            variant={format === "jsonl" ? "default" : "outline"}
+            size="sm"
+            className="flex-1 gap-1.5"
+            onClick={() => setFormat("jsonl")}
+          >
+            <FileJson className="h-3.5 w-3.5" />
+            JSONL
+          </Button>
+        </div>
+
+        <Button onClick={handleExport} disabled={isExporting} className="w-full gap-2">
+          {isExporting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Exporting…
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4" />
+              Export Research Dataset (.{format})
             </>
           )}
         </Button>
 
         <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-          Restore with: <code className="font-mono bg-muted px-1 py-0.5 rounded">psql $DATABASE_URL &lt; backup.sql</code>
+          Each row represents one model response with its associated judge and human scores.
         </p>
       </CardContent>
     </Card>
