@@ -259,20 +259,21 @@ function SummaryStats({
                   Score Distribution — {totalEvaluated} evaluations
                 </p>
               </div>
-              <div className="flex gap-1.5 h-14 items-end">
+              <div className="flex gap-1.5 h-16 items-end overflow-hidden">
                 {[5, 4, 3, 2, 1].map((s) => {
                   const count = scoreDist[s] ?? 0;
                   const pct = totalEvaluated > 0 ? (count / totalEvaluated) * 100 : 0;
                   const meta = SCORE_META[s];
                   return (
-                    <div key={s} className="flex-1 flex flex-col items-center gap-1">
-                      <span className="text-[10px] font-semibold text-muted-foreground">{count > 0 ? count : ""}</span>
-                      <div
-                        className={`w-full rounded-t-sm ${meta.bar} transition-all min-h-[2px]`}
-                        style={{ height: `${Math.max(2, pct * 0.42)}rem` }}
-                        title={`Score ${s}: ${count} (${pct.toFixed(0)}%)`}
-                      />
-                      <span className={`text-[10px] font-bold ${meta.text}`}>{s}</span>
+                    <div key={s} className="flex-1 flex flex-col items-end gap-1 h-full">
+                      <div className="flex-1 w-full flex items-end">
+                        <div
+                          className={`w-full rounded-t-sm ${meta.bar} transition-all`}
+                          style={{ height: `${Math.max(3, pct)}%` }}
+                          title={`Score ${s}: ${count} (${pct.toFixed(0)}%)`}
+                        />
+                      </div>
+                      <span className={`text-[10px] font-bold ${meta.text} leading-none`}>{s}</span>
                     </div>
                   );
                 })}
