@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -468,6 +469,25 @@ function SearchCard({ docs }: { docs: RagDoc[] }) {
   );
 }
 
+// ── Dataset question-type counts hook ─────────────────────────────────────────
+
+function useDatasetQTypeCounts(datasetId: string) {
+  return useQuery<{ mcq: number; openEnded: number; total: number }>({
+    queryKey: ["questions", "type-counts", datasetId],
+    queryFn: async () => {
+      const rows: Array<{ questionType: string }> = await fetch(
+        `/api/questions?datasetId=${datasetId}`,
+        { credentials: "include" }
+      ).then((r) => r.json());
+      const mcq      = rows.filter((r) => r.questionType === "MCQ").length;
+      const openEnded = rows.filter((r) => r.questionType !== "MCQ").length;
+      return { mcq, openEnded, total: rows.length };
+    },
+    enabled: !!datasetId,
+    staleTime: 60_000,
+  });
+}
+
 // ── RAG Re-Inference Card ─────────────────────────────────────────────────────
 
 function ReInferCard({ docs, onDone }: { docs: RagDoc[]; onDone: () => void }) {
@@ -481,6 +501,64 @@ function ReInferCard({ docs, onDone }: { docs: RagDoc[]; onDone: () => void }) {
   const [result, setResult] = useState<{ generated: number; skipped: number; errors: string[] } | null>(null);
 
   const embeddedDocs = docs.filter((d) => d.chunkCount > 0);
+  const { data: qCounts } = useDatasetQTypeCounts(datasetId);
+
+  // Determine which embedded docs are eligible per question type
+  // (respects user manual selection if any)
+  const activeDocs = useMemo(() => {
+    if (selectedDocIds.length > 0) return embeddedDocs.filter((d) => selectedDocIds.includes(d.id));
+    return embeddedDocs;
+  }, [embeddedDocs, selectedDocIds]);
+
+  const mcqEligibleDocs      = activeDocs.filter((d) => d.targetType === "all" || d.targetType === "mcq");
+  const openEndedEligibleDocs = activeDocs.filter((d) => d.targetType === "all" || d.targetType === "open_ended");
+
+  // Compatibility notices
+  const notices = useMemo(() => {
+    if (!datasetId || !qCounts || embeddedDocs.length === 0) return [];
+    const list: Array<{ type: "warn" | "info"; msg: string }> = [];
+
+    if (qCounts.mcq > 0 && mcqEligibleDocs.length === 0) {
+      list.push({
+        type: "warn",
+        msg: `This dataset has ${qCounts.mcq} MCQ question${qCounts.mcq > 1 ? "s" : ""} but none of the ${selectedDocIds.length > 0 ? "selected" : "embedded"} documents are tagged "MCQ only" or "All questions". Those questions will run without RAG context.`,
+      });
+    }
+    if (qCounts.openEnded > 0 && openEndedEligibleDocs.length === 0) {
+      list.push({
+        type: "warn",
+        msg: `This dataset has ${qCounts.openEnded} open-ended question${qCounts.openEnded > 1 ? "s" : ""} but none of the ${selectedDocIds.length > 0 ? "selected" : "embedded"} documents are tagged "Open-ended only" or "All questions". Those questions will run without RAG context.`,
+      });
+    }
+    if (list.length === 0 && qCounts.total > 0) {
+      const parts: string[] = [];
+      if (qCounts.mcq > 0)      parts.push(`${qCounts.mcq} MCQ (topK=1)`);
+      if (qCounts.openEnded > 0) parts.push(`${qCounts.openEnded} open-ended (topK=3)`);
+      list.push({ type: "info", msg: `All question types have eligible documents — ${parts.join(" · ")}` });
+    }
+
+    // Warn about unused documents (tagged for a type not present in dataset)
+    if (qCounts.mcq === 0) {
+      const unusedMcq = activeDocs.filter((d) => d.targetType === "mcq");
+      if (unusedMcq.length > 0) {
+        list.push({
+          type: "warn",
+          msg: `${unusedMcq.length} document${unusedMcq.length > 1 ? "s are" : " is"} tagged "MCQ only" but this dataset has no MCQ questions — ${unusedMcq.map((d) => `"${d.title}"`).join(", ")} will not be used.`,
+        });
+      }
+    }
+    if (qCounts.openEnded === 0) {
+      const unusedOE = activeDocs.filter((d) => d.targetType === "open_ended");
+      if (unusedOE.length > 0) {
+        list.push({
+          type: "warn",
+          msg: `${unusedOE.length} document${unusedOE.length > 1 ? "s are" : " is"} tagged "Open-ended only" but this dataset has no open-ended questions — ${unusedOE.map((d) => `"${d.title}"`).join(", ")} will not be used.`,
+        });
+      }
+    }
+
+    return list;
+  }, [datasetId, qCounts, activeDocs, mcqEligibleDocs, openEndedEligibleDocs, embeddedDocs, selectedDocIds]);
 
   function toggleDoc(id: number) {
     setSelectedDocIds((prev) =>
@@ -603,6 +681,29 @@ function ReInferCard({ docs, onDone }: { docs: RagDoc[]; onDone: () => void }) {
             </div>
           )}
         </div>
+
+        {/* Compatibility notices — rendered after dataset is selected */}
+        {datasetId && notices.length > 0 && (
+          <div className="space-y-2">
+            {notices.map((n, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border p-3 flex gap-2.5 text-xs ${
+                  n.type === "warn"
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-green-50 border-green-200 text-green-800"
+                }`}
+              >
+                {n.type === "warn" ? (
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-500" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5 text-green-500" />
+                )}
+                <p className="leading-relaxed">{n.msg}</p>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 flex gap-2.5 text-xs text-blue-800">
           <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
