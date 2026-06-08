@@ -1,11 +1,12 @@
 import { useGetModelComparison, useGetScoreDistribution, useGetSpearmanCorrelation } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid, ReferenceLine, Cell } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain, Flag, Download, FileText, FileJson, Printer, BookOpen, CheckCircle2, XCircle, Minus } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Users, Brain, Flag, Download, FileText, FileJson, Printer, BookOpen, CheckCircle2, XCircle, Minus, FlaskConical, ArrowUp, ArrowDown } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -939,6 +940,260 @@ function DisagreementSection() {
   );
 }
 
+// ── RAG Comparison ────────────────────────────────────────────────────────────
+
+interface RagModelStat {
+  modelId: number; modelName: string; n: number;
+  avgScoreBefore: number; avgScoreAfter: number; avgDelta: number;
+  spearmanBeforeAfter: number;
+  improved: number; worsened: number; unchanged: number;
+}
+interface RagPairRow {
+  modelName: string; questionText: string; questionType: string;
+  scoreBefore: number; scoreAfter: number; delta: number;
+}
+interface RagNoiseCase {
+  modelName: string; questionText: string;
+  scoreBefore: number; scoreAfter: number; delta: number;
+  ragReasoning: string | null;
+}
+interface RagComparison {
+  totalPairs: number;
+  pairs: RagPairRow[];
+  modelStats: RagModelStat[];
+  noiseCases: RagNoiseCase[];
+}
+
+function useRagComparison() {
+  return useQuery<RagComparison>({
+    queryKey: ["analytics", "rag-comparison"],
+    queryFn: () =>
+      fetch("/api/analytics/rag-comparison", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
+}
+
+function RagComparisonSection() {
+  const { data, isLoading } = useRagComparison();
+  const [showNoise, setShowNoise] = useState(false);
+  const [showTable, setShowTable] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-primary" /> RAG Impact Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent><Skeleton className="h-40 w-full" /></CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || data.totalPairs === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-primary" /> RAG Impact Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No paired RAG/baseline evaluations found yet.<br />
+            Run RAG Re-Inference then evaluate those responses with the Judge to see the comparison.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const barData = data.modelStats.map(m => ({
+    name: m.modelName,
+    "Without RAG": m.avgScoreBefore,
+    "With RAG":    m.avgScoreAfter,
+  }));
+
+  const totalImproved  = data.modelStats.reduce((s, m) => s + m.improved,  0);
+  const totalWorsened  = data.modelStats.reduce((s, m) => s + m.worsened,  0);
+  const totalUnchanged = data.modelStats.reduce((s, m) => s + m.unchanged, 0);
+  const overallDelta   = data.modelStats.length
+    ? data.modelStats.reduce((s, m) => s + m.avgDelta, 0) / data.modelStats.length
+    : 0;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-primary" />
+          RAG Impact Analysis
+          <Badge variant="secondary" className="text-[10px] ml-1">{data.totalPairs} paired evaluations</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+
+        {/* Summary row */}
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            {
+              label: "Avg Δ Score",
+              value: (overallDelta >= 0 ? "+" : "") + overallDelta.toFixed(3),
+              color: overallDelta > 0 ? "text-green-600" : overallDelta < 0 ? "text-red-500" : "text-muted-foreground",
+              sub: "RAG vs baseline",
+            },
+            { label: "Improved",  value: String(totalImproved),  color: "text-green-600", sub: "questions (Δ > 0)" },
+            { label: "Worsened",  value: String(totalWorsened),  color: "text-red-500",   sub: "questions (Δ < 0)" },
+            { label: "Unchanged", value: String(totalUnchanged), color: "text-muted-foreground", sub: "questions (Δ = 0)" },
+          ].map(({ label, value, color, sub }) => (
+            <div key={label} className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className={`text-xl font-bold ${color}`}>{value}</p>
+              <p className="text-xs font-medium text-foreground">{label}</p>
+              <p className="text-[10px] text-muted-foreground">{sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Bar chart: avg score before vs after per model */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Average Score — Without RAG vs With RAG
+          </p>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData} margin={{ top: 4, right: 16, left: -16, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis domain={[0, 5]} fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+                <ReferenceLine y={3} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.5} />
+                <Bar dataKey="Without RAG" fill="#94a3b8" radius={[4,4,0,0]} barSize={28} />
+                <Bar dataKey="With RAG"    fill="hsl(var(--primary))" radius={[4,4,0,0]} barSize={28} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Per-model stats table */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Per-Model Summary</p>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  {["Model","N","Avg Before","Avg After","Δ Avg","Improved","Worsened","ρ (before↔after)"].map(h => (
+                    <th key={h} className="px-3 py-2 text-left font-semibold text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.modelStats.map(m => (
+                  <tr key={m.modelId} className="border-t border-border hover:bg-muted/20">
+                    <td className="px-3 py-2 font-medium">{m.modelName}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{m.n}</td>
+                    <td className="px-3 py-2">{m.avgScoreBefore.toFixed(2)}</td>
+                    <td className="px-3 py-2">{m.avgScoreAfter.toFixed(2)}</td>
+                    <td className={`px-3 py-2 font-semibold ${m.avgDelta > 0 ? "text-green-600" : m.avgDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                      {m.avgDelta >= 0 ? "+" : ""}{m.avgDelta.toFixed(3)}
+                    </td>
+                    <td className="px-3 py-2 text-green-600">{m.improved}</td>
+                    <td className="px-3 py-2 text-red-500">{m.worsened}</td>
+                    <td className="px-3 py-2 font-mono">{m.spearmanBeforeAfter.toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Noise cases */}
+        {data.noiseCases.length > 0 && (
+          <div>
+            <button
+              className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 hover:text-foreground transition-colors"
+              onClick={() => setShowNoise(!showNoise)}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              Noise Cases — RAG Hurt Performance ({data.noiseCases.length})
+              {showNoise ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            {showNoise && (
+              <div className="space-y-2">
+                {data.noiseCases.map((c, i) => (
+                  <div key={i} className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-foreground">{c.modelName}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{c.scoreBefore} → {c.scoreAfter}</span>
+                        <Badge className="text-[10px] bg-red-100 text-red-700 border-red-200">
+                          Δ {c.delta}
+                        </Badge>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{c.questionText}</p>
+                    {c.ragReasoning && (
+                      <p className="text-[10px] text-muted-foreground italic border-t border-red-200 pt-1 mt-1">
+                        Judge: {c.ragReasoning}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Full pairs table toggle */}
+        <div>
+          <button
+            className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors"
+            onClick={() => setShowTable(!showTable)}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Full Question-Level Comparison ({data.pairs.length} rows)
+            {showTable ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+          {showTable && (
+            <div className="mt-2 rounded-lg border border-border overflow-x-auto max-h-[420px] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50 sticky top-0">
+                  <tr>
+                    {["Model","Type","Question","Before","After","Δ"].map(h => (
+                      <th key={h} className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.pairs.map((p, i) => (
+                    <tr key={i} className={`border-t border-border ${p.delta < 0 ? "bg-red-50" : p.delta > 0 ? "bg-green-50/50" : ""}`}>
+                      <td className="px-3 py-1.5 font-medium whitespace-nowrap">{p.modelName}</td>
+                      <td className="px-3 py-1.5">
+                        <Badge variant="outline" className="text-[9px]">{p.questionType}</Badge>
+                      </td>
+                      <td className="px-3 py-1.5 max-w-[300px] truncate text-muted-foreground">{p.questionText}</td>
+                      <td className="px-3 py-1.5 text-center font-mono">{p.scoreBefore}</td>
+                      <td className="px-3 py-1.5 text-center font-mono">{p.scoreAfter}</td>
+                      <td className={`px-3 py-1.5 text-center font-semibold font-mono ${p.delta > 0 ? "text-green-600" : p.delta < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                        {p.delta > 0 ? <span className="flex items-center gap-0.5 justify-center"><ArrowUp className="h-3 w-3" />{p.delta}</span>
+                          : p.delta < 0 ? <span className="flex items-center gap-0.5 justify-center"><ArrowDown className="h-3 w-3" />{Math.abs(p.delta)}</span>
+                          : "0"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main Analytics Page ───────────────────────────────────────────────────────
 
 export default function Analytics() {
@@ -1104,6 +1359,9 @@ export default function Analytics() {
 
       {/* ── Disagreement Analysis ── */}
       <DisagreementSection />
+
+      {/* ── RAG Impact Analysis ── */}
+      <RagComparisonSection />
     </motion.div>
   );
 }

@@ -687,4 +687,117 @@ function spearmanCorr(x: number[], y: number[]): number {
   return 1 - (6 * d2) / (n * (n * n - 1));
 }
 
+// ── GET /analytics/rag-comparison ─────────────────────────────────────────────
+// Returns before/after RAG scores per question+model, Spearman ρ comparison,
+// and noise-case analysis.
+router.get("/analytics/rag-comparison", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  // Fetch all paired rows: same question + same model, one without RAG (base)
+  // and one with RAG, both evaluated by the judge.
+  const rawPairs = await db.execute(sql`
+    SELECT
+      m.id_model                         AS model_id,
+      m.model_name                       AS model_name,
+      q.id_question                      AS question_id,
+      q.question_text                    AS question_text,
+      q.question_type                    AS question_type,
+      je_base.score                      AS score_without_rag,
+      je_rag.score                       AS score_with_rag,
+      (je_rag.score - je_base.score)     AS delta,
+      mr_rag.rag_context                 AS rag_context,
+      je_rag.reasoning                   AS rag_reasoning
+    FROM model_responses mr_base
+    JOIN model_responses mr_rag
+      ON  mr_rag.id_question  = mr_base.id_question
+      AND mr_rag.id_model      = mr_base.id_model
+      AND mr_rag.rag_enabled   = true
+    JOIN judge_evaluations je_base ON je_base.id_response = mr_base.id_response
+    JOIN judge_evaluations je_rag  ON je_rag.id_response  = mr_rag.id_response
+    JOIN models   m ON m.id_model    = mr_base.id_model
+    JOIN questions q ON q.id_question = mr_base.id_question
+    WHERE mr_base.rag_enabled = false
+    ORDER BY m.model_name, q.id_question
+  `);
+
+  const pairs: Array<{
+    model_id: number; model_name: string; question_id: number;
+    question_text: string; question_type: string;
+    score_without_rag: number; score_with_rag: number; delta: number;
+    rag_context: string | null; rag_reasoning: string | null;
+  }> = (Array.isArray(rawPairs) ? rawPairs : (rawPairs as any).rows ?? []).map((r: any) => ({
+    model_id: Number(r.model_id),
+    model_name: String(r.model_name),
+    question_id: Number(r.question_id),
+    question_text: String(r.question_text),
+    question_type: String(r.question_type),
+    score_without_rag: Number(r.score_without_rag),
+    score_with_rag: Number(r.score_with_rag),
+    delta: Number(r.delta),
+    rag_context: r.rag_context ?? null,
+    rag_reasoning: r.rag_reasoning ?? null,
+  }));
+
+  if (pairs.length === 0) {
+    res.json({ pairs: [], modelStats: [], noiseCases: [], totalPairs: 0 });
+    return;
+  }
+
+  // Group by model for per-model Spearman ρ computation
+  const byModel = new Map<number, typeof pairs>();
+  for (const p of pairs) {
+    if (!byModel.has(p.model_id)) byModel.set(p.model_id, []);
+    byModel.get(p.model_id)!.push(p);
+  }
+
+  const modelStats = Array.from(byModel.entries()).map(([modelId, rows]) => {
+    const without = rows.map(r => r.score_without_rag);
+    const with_   = rows.map(r => r.score_with_rag);
+    const rhoBase = spearmanCorr(without, without.map((_, i) => i + 1)); // rank stability
+    const rhoBefore = spearmanCorr(without, with_);  // how well baseline predicts rag
+    const improved  = rows.filter(r => r.delta > 0).length;
+    const worsened  = rows.filter(r => r.delta < 0).length;
+    const unchanged = rows.filter(r => r.delta === 0).length;
+    const avgDelta  = rows.reduce((s, r) => s + r.delta, 0) / rows.length;
+    const avgBefore = rows.reduce((s, r) => s + r.score_without_rag, 0) / rows.length;
+    const avgAfter  = rows.reduce((s, r) => s + r.score_with_rag,    0) / rows.length;
+    return {
+      modelId, modelName: rows[0].model_name, n: rows.length,
+      avgScoreBefore: Math.round(avgBefore * 1000) / 1000,
+      avgScoreAfter:  Math.round(avgAfter  * 1000) / 1000,
+      avgDelta:       Math.round(avgDelta  * 1000) / 1000,
+      spearmanBeforeAfter: Math.round(rhoBefore * 1000) / 1000,
+      improved, worsened, unchanged,
+    };
+  });
+
+  // Noise cases: delta < 0, sorted by most negative first
+  const noiseCases = pairs
+    .filter(p => p.delta < 0)
+    .sort((a, b) => a.delta - b.delta)
+    .slice(0, 20)
+    .map(p => ({
+      modelName: p.model_name,
+      questionText: p.question_text.slice(0, 180),
+      scoreBefore: p.score_without_rag,
+      scoreAfter:  p.score_with_rag,
+      delta:       p.delta,
+      ragReasoning: p.rag_reasoning?.slice(0, 300) ?? null,
+    }));
+
+  res.json({
+    totalPairs: pairs.length,
+    pairs: pairs.map(p => ({
+      modelName:      p.model_name,
+      questionText:   p.question_text.slice(0, 120),
+      questionType:   p.question_type,
+      scoreBefore:    p.score_without_rag,
+      scoreAfter:     p.score_with_rag,
+      delta:          p.delta,
+    })),
+    modelStats,
+    noiseCases,
+  });
+});
+
 export default router;
