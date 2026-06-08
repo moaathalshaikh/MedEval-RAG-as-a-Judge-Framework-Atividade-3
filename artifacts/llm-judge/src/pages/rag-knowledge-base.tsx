@@ -16,12 +16,21 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type TargetType = "all" | "mcq" | "open_ended";
+
+const TARGET_TYPE_META: Record<TargetType, { label: string; color: string; hint: string }> = {
+  all:        { label: "All questions",       color: "bg-slate-100 text-slate-700 border-slate-200",    hint: "Used for both MCQ and open-ended questions" },
+  mcq:        { label: "MCQ only",            color: "bg-blue-50 text-blue-700 border-blue-200",        hint: "Used only for multiple-choice questions (topK=1, precise retrieval)" },
+  open_ended: { label: "Open-ended only",     color: "bg-violet-50 text-violet-700 border-violet-200",  hint: "Used only for open-ended questions (topK=3, broader retrieval)" },
+};
+
 interface RagDoc {
   id: number;
   title: string;
   domain: string | null;
   sourceYear: number | null;
   sourceRef: string | null;
+  targetType: TargetType;
   chunkCount: number;
   embeddedAt: string | null;
   createdAt: string;
@@ -183,6 +192,7 @@ function AddDocumentForm({ onAdded }: { onAdded: () => void }) {
   const [domain, setDomain] = useState("");
   const [sourceYear, setSourceYear] = useState("");
   const [sourceRef, setSourceRef] = useState("");
+  const [targetType, setTargetType] = useState<TargetType>("all");
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -198,6 +208,7 @@ function AddDocumentForm({ onAdded }: { onAdded: () => void }) {
           domain: domain.trim() || undefined,
           sourceYear: sourceYear ? parseInt(sourceYear) : undefined,
           sourceRef: sourceRef.trim() || undefined,
+          targetType,
         }),
       });
       toast({ title: "Document added", description: "Ready to embed." });
@@ -208,6 +219,8 @@ function AddDocumentForm({ onAdded }: { onAdded: () => void }) {
       setSaving(false);
     }
   }
+
+  const meta = TARGET_TYPE_META[targetType];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -231,6 +244,41 @@ function AddDocumentForm({ onAdded }: { onAdded: () => void }) {
           <Label>Source Reference</Label>
           <Input placeholder="e.g. ADA Diabetes Care, Vol 47, Supplement 1, 2024" value={sourceRef} onChange={(e) => setSourceRef(e.target.value)} />
         </div>
+
+        {/* Target Question Type */}
+        <div className="col-span-2 space-y-1.5">
+          <Label>
+            Target Question Type
+            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">(controls which questions this document is injected into during re-inference)</span>
+          </Label>
+          <Select value={targetType} onValueChange={(v) => setTargetType(v as TargetType)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                  All questions — MCQ + Open-ended
+                </span>
+              </SelectItem>
+              <SelectItem value="mcq">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+                  MCQ only — precise facts, definitions, criteria
+                </span>
+              </SelectItem>
+              <SelectItem value="open_ended">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />
+                  Open-ended only — guidelines, explanations, protocols
+                </span>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground">{meta.hint}{targetType === "mcq" ? " · topK=1 (single most relevant chunk)" : targetType === "open_ended" ? " · topK=3 (broader context)" : " · topK auto (1 for MCQ, 3 for open-ended)"}</p>
+        </div>
+
         <div className="col-span-2 space-y-1.5">
           <Label>Content * <span className="text-muted-foreground font-normal">(plain text — paste directly from guideline)</span></Label>
           <Textarea
@@ -310,6 +358,16 @@ function DocRow({ doc, onUpdate }: { doc: RagDoc; onUpdate: () => void }) {
         <div className="flex flex-wrap items-center gap-1.5 mt-1">
           {doc.domain && <Badge variant="secondary" className="text-[10px]">{doc.domain}</Badge>}
           {doc.sourceYear && <Badge variant="outline" className="text-[10px]">{doc.sourceYear}</Badge>}
+          {/* Target type badge */}
+          {(() => {
+            const t = doc.targetType ?? "all";
+            const meta = TARGET_TYPE_META[t as TargetType] ?? TARGET_TYPE_META.all;
+            return (
+              <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${meta.color}`}>
+                {meta.label}
+              </span>
+            );
+          })()}
           {isEmbedded
             ? <span className="text-[10px] text-green-600 font-medium">{doc.chunkCount} chunks embedded</span>
             : <span className="text-[10px] text-amber-600">Not embedded yet</span>

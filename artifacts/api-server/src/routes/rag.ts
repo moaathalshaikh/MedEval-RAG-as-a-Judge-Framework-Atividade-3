@@ -45,17 +45,20 @@ router.get("/rag/documents", async (req: Request, res: Response): Promise<void> 
 router.post("/rag/documents", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
   const uid = req.user!.id;
-  const { title, content, domain, sourceYear, sourceRef } = req.body as {
+  const { title, content, domain, sourceYear, sourceRef, targetType } = req.body as {
     title?: string;
     content?: string;
     domain?: string;
     sourceYear?: number;
     sourceRef?: string;
+    targetType?: string;
   };
   if (!title?.trim() || !content?.trim()) {
     res.status(400).json({ error: "title and content are required" });
     return;
   }
+  const validTargetTypes = ["all", "mcq", "open_ended"];
+  const safeTargetType = validTargetTypes.includes(targetType ?? "") ? targetType! : "all";
   const [doc] = await db
     .insert(ragDocumentsTable)
     .values({
@@ -64,6 +67,7 @@ router.post("/rag/documents", async (req: Request, res: Response): Promise<void>
       domain: domain?.trim() ?? null,
       sourceYear: sourceYear ?? null,
       sourceRef: sourceRef?.trim() ?? null,
+      targetType: safeTargetType,
       createdBy: uid,
     })
     .returning();
@@ -222,48 +226,71 @@ router.post("/rag/re-infer", async (req: Request, res: Response): Promise<void> 
     return;
   }
 
+  // Pre-fetch all eligible embedded documents with their targetType
+  const allDocs = await db
+    .select({ id: ragDocumentsTable.id, targetType: ragDocumentsTable.targetType })
+    .from(ragDocumentsTable)
+    .where(sql`${ragDocumentsTable.chunkCount} > 0`);
+
+  // Helper: resolve which docIds are eligible for a given question type
+  function eligibleDocIds(questionType: string, userSelectedIds?: number[]): number[] {
+    const qType = questionType === "MCQ" ? "mcq" : "open_ended";
+    const eligible = allDocs
+      .filter(d => d.targetType === "all" || d.targetType === qType)
+      .map(d => d.id);
+    if (userSelectedIds && userSelectedIds.length > 0) {
+      // Intersect user selection with eligibility
+      return userSelectedIds.filter(id => eligible.includes(id));
+    }
+    return eligible;
+  }
+
   let generated = 0;
   let skipped = 0;
   const errors: string[] = [];
 
   for (const q of questions) {
     try {
+      // Determine eligible docs and topK based on question type
+      const isMcq = q.questionType === "MCQ";
+      const effectiveTopK = isMcq ? 1 : (topK ?? 3);   // MCQ: 1 precise chunk; open-ended: 3
+      const eligibleIds = eligibleDocIds(q.questionType, documentIds);
+
       // Search relevant chunks for this question
       const queryEmbedding = await getEmbedding(q.questionText, openaiKey);
       const vecStr = `[${queryEmbedding.join(",")}]`;
 
       let chunkRows: Array<{ chunk_text: string; doc_title: string }>;
-      if (documentIds && documentIds.length > 0) {
+      if (eligibleIds.length > 0) {
         chunkRows = await db.execute(sql`
           SELECT c.chunk_text, d.title AS doc_title
           FROM rag_chunks c
           JOIN rag_documents d ON d.id = c.document_id
-          WHERE c.document_id = ANY(${documentIds}::int[])
+          WHERE c.document_id = ANY(${eligibleIds}::int[])
             AND c.embedding IS NOT NULL
           ORDER BY c.embedding <=> ${vecStr}::vector
-          LIMIT ${topK}
+          LIMIT ${effectiveTopK}
         `) as any;
         chunkRows = Array.isArray(chunkRows) ? chunkRows : (chunkRows as any).rows ?? [];
       } else {
-        chunkRows = await db.execute(sql`
-          SELECT c.chunk_text, d.title AS doc_title
-          FROM rag_chunks c
-          JOIN rag_documents d ON d.id = c.document_id
-          WHERE c.embedding IS NOT NULL
-          ORDER BY c.embedding <=> ${vecStr}::vector
-          LIMIT ${topK}
-        `) as any;
-        chunkRows = Array.isArray(chunkRows) ? chunkRows : (chunkRows as any).rows ?? [];
+        // No eligible docs for this question type → no RAG context
+        chunkRows = [];
+        logger.warn({ questionId: q.id, questionType: q.questionType }, "No eligible RAG documents for question type");
       }
 
-      // Build RAG-augmented prompt
+      // Build RAG-augmented prompt (differs by question type)
       const ragContext = chunkRows
         .map((c, i) => `[Context ${i + 1} — ${c.doc_title}]\n${c.chunk_text}`)
         .join("\n\n---\n\n");
 
-      const augmentedPrompt = ragContext.length > 0
-        ? `${q.questionText}\n\n[RELEVANT CLINICAL CONTEXT — Retrieved from current guidelines]\n\n${ragContext}\n\nPlease answer using both your medical knowledge and the above clinical context.`
-        : q.questionText;
+      let augmentedPrompt: string;
+      if (ragContext.length === 0) {
+        augmentedPrompt = q.questionText;
+      } else if (isMcq) {
+        augmentedPrompt = `${q.questionText}\n\n[CLINICAL REFERENCE — Use this to inform your answer]\n\n${ragContext}\n\nBased on the above reference and your medical knowledge, select the single best answer.`;
+      } else {
+        augmentedPrompt = `${q.questionText}\n\n[RELEVANT CLINICAL CONTEXT — Retrieved from current guidelines]\n\n${ragContext}\n\nPlease answer using both your medical knowledge and the above clinical context.`;
+      }
 
       const { text, inferenceTimeMs } = await callLLM(
         model.modelType as LLMProvider,

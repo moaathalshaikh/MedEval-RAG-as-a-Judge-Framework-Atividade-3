@@ -19,6 +19,8 @@ export const vectorCol = customType<{ data: number[]; driverData: string }>({
 });
 
 // ── RAG Documents ─────────────────────────────────────────────────────────────
+// targetType: "all" | "mcq" | "open_ended"
+// Controls which question types this document is injected into during re-inference.
 export const ragDocumentsTable = pgTable("rag_documents", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -26,6 +28,7 @@ export const ragDocumentsTable = pgTable("rag_documents", {
   domain: text("domain"),
   sourceYear: integer("source_year"),
   sourceRef: text("source_ref"),
+  targetType: text("target_type").notNull().default("all"),
   chunkCount: integer("chunk_count").notNull().default(0),
   embeddedAt: timestamp("embedded_at", { withTimezone: true }),
   createdBy: text("created_by").references(() => usersTable.id, { onDelete: "set null" }),
