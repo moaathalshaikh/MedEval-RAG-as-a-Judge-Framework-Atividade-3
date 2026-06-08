@@ -800,4 +800,108 @@ router.get("/analytics/rag-comparison", async (req, res): Promise<void> => {
   });
 });
 
+// ── GET /analytics/mcq-rag-comparison ─────────────────────────────────────────
+// Returns before/after RAG accuracy for MCQ questions, per model.
+router.get("/analytics/mcq-rag-comparison", async (req, res): Promise<void> => {
+  if (!req.isAuthenticated()) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const rawPairs = await db.execute(sql`
+    SELECT
+      m.id_model                                                              AS model_id,
+      m.model_name                                                            AS model_name,
+      q.id_question                                                           AS question_id,
+      q.question_text                                                         AS question_text,
+      COALESCE(mr_base.mcq_correct, q.gold_answer)                           AS correct_answer,
+      mr_base.response_text                                                   AS response_base,
+      mr_rag.response_text                                                    AS response_rag,
+      CASE WHEN UPPER(TRIM(mr_base.response_text)) =
+                UPPER(TRIM(COALESCE(mr_base.mcq_correct, q.gold_answer)))
+           THEN 1 ELSE 0 END                                                  AS base_correct,
+      CASE WHEN UPPER(TRIM(mr_rag.response_text))  =
+                UPPER(TRIM(COALESCE(mr_rag.mcq_correct,  q.gold_answer)))
+           THEN 1 ELSE 0 END                                                  AS rag_correct
+    FROM model_responses mr_base
+    JOIN model_responses mr_rag
+      ON  mr_rag.id_question = mr_base.id_question
+      AND mr_rag.id_model    = mr_base.id_model
+      AND mr_rag.rag_enabled = true
+    JOIN models    m ON m.id_model    = mr_base.id_model
+    JOIN questions q ON q.id_question = mr_base.id_question
+    WHERE mr_base.rag_enabled = false
+      AND q.question_type     = 'MCQ'
+    ORDER BY m.model_name, q.id_question
+  `);
+
+  const pairs: Array<{
+    model_id: number; model_name: string; question_id: number;
+    question_text: string; correct_answer: string;
+    response_base: string; response_rag: string;
+    base_correct: number; rag_correct: number;
+  }> = (Array.isArray(rawPairs) ? rawPairs : (rawPairs as any).rows ?? []).map((r: any) => ({
+    model_id:      Number(r.model_id),
+    model_name:    String(r.model_name),
+    question_id:   Number(r.question_id),
+    question_text: String(r.question_text),
+    correct_answer: String(r.correct_answer ?? ""),
+    response_base: String(r.response_base ?? ""),
+    response_rag:  String(r.response_rag  ?? ""),
+    base_correct:  Number(r.base_correct),
+    rag_correct:   Number(r.rag_correct),
+  }));
+
+  if (pairs.length === 0) {
+    res.json({ totalPairs: 0, modelStats: [], pairs: [] });
+    return;
+  }
+
+  // Group by model
+  const byModel = new Map<number, typeof pairs>();
+  for (const p of pairs) {
+    if (!byModel.has(p.model_id)) byModel.set(p.model_id, []);
+    byModel.get(p.model_id)!.push(p);
+  }
+
+  const modelStats = Array.from(byModel.entries()).map(([modelId, rows]) => {
+    const total        = rows.length;
+    const baseCorrect  = rows.reduce((s, r) => s + r.base_correct,  0);
+    const ragCorrect   = rows.reduce((s, r) => s + r.rag_correct,   0);
+    const baseAccuracy = (baseCorrect  / total) * 100;
+    const ragAccuracy  = (ragCorrect   / total) * 100;
+    const deltaAcc     = ragAccuracy - baseAccuracy;
+
+    // Flip (baseline wrong → RAG right) and (baseline right → RAG wrong)
+    const improved  = rows.filter(r => r.base_correct === 0 && r.rag_correct === 1).length;
+    const worsened  = rows.filter(r => r.base_correct === 1 && r.rag_correct === 0).length;
+    const unchanged = total - improved - worsened;
+
+    return {
+      modelId,
+      modelName:     rows[0].model_name,
+      n:             total,
+      baseCorrect,
+      ragCorrect,
+      baseAccuracy:  Math.round(baseAccuracy  * 10) / 10,
+      ragAccuracy:   Math.round(ragAccuracy   * 10) / 10,
+      deltaAccuracy: Math.round(deltaAcc      * 10) / 10,
+      improved,
+      worsened,
+      unchanged,
+    };
+  });
+
+  // Full pair table (for detailed view)
+  const pairTable = pairs.map(p => ({
+    modelName:     p.model_name,
+    questionText:  p.question_text.slice(0, 140),
+    correctAnswer: p.correct_answer,
+    baseAnswer:    p.response_base,
+    ragAnswer:     p.response_rag,
+    baseCorrect:   p.base_correct === 1,
+    ragCorrect:    p.rag_correct  === 1,
+    flipped:       p.base_correct !== p.rag_correct,
+  }));
+
+  res.json({ totalPairs: pairs.length, modelStats, pairs: pairTable });
+});
+
 export default router;

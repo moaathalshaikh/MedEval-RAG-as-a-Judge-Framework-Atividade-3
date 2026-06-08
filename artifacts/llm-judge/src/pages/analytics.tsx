@@ -940,6 +940,224 @@ function DisagreementSection() {
   );
 }
 
+// ── MCQ RAG Accuracy Comparison ───────────────────────────────────────────────
+
+interface McqModelStat {
+  modelId: number; modelName: string; n: number;
+  baseCorrect: number; ragCorrect: number;
+  baseAccuracy: number; ragAccuracy: number; deltaAccuracy: number;
+  improved: number; worsened: number; unchanged: number;
+}
+interface McqPairRow {
+  modelName: string; questionText: string; correctAnswer: string;
+  baseAnswer: string; ragAnswer: string;
+  baseCorrect: boolean; ragCorrect: boolean; flipped: boolean;
+}
+interface McqRagComparison {
+  totalPairs: number;
+  modelStats: McqModelStat[];
+  pairs: McqPairRow[];
+}
+
+function useMcqRagComparison() {
+  return useQuery<McqRagComparison>({
+    queryKey: ["analytics", "mcq-rag-comparison"],
+    queryFn: () =>
+      fetch("/api/analytics/mcq-rag-comparison", { credentials: "include" }).then(r => r.json()),
+    staleTime: 60_000,
+  });
+}
+
+function McqRagComparisonSection() {
+  const { data, isLoading } = useMcqRagComparison();
+  const [showTable, setShowTable] = useState(false);
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary" /> MCQ RAG Accuracy Comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent><Skeleton className="h-40 w-full" /></CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || data.totalPairs === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-primary" /> MCQ RAG Accuracy Comparison
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No paired MCQ RAG / baseline responses found yet.<br />
+            Run RAG Re-Inference on a dataset containing MCQ questions to enable this comparison.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const barData = data.modelStats.map(m => ({
+    name: m.modelName,
+    "Without RAG": m.baseAccuracy,
+    "With RAG":    m.ragAccuracy,
+  }));
+
+  const overallBase  = data.modelStats.length
+    ? data.modelStats.reduce((s, m) => s + m.baseAccuracy,  0) / data.modelStats.length : 0;
+  const overallRag   = data.modelStats.length
+    ? data.modelStats.reduce((s, m) => s + m.ragAccuracy,   0) / data.modelStats.length : 0;
+  const overallDelta = overallRag - overallBase;
+
+  const totalImproved  = data.modelStats.reduce((s, m) => s + m.improved,  0);
+  const totalWorsened  = data.modelStats.reduce((s, m) => s + m.worsened,  0);
+  const totalUnchanged = data.modelStats.reduce((s, m) => s + m.unchanged, 0);
+
+  const flippedRows = data.pairs.filter(p => p.flipped);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-primary" />
+          MCQ RAG Accuracy Comparison
+          <Badge variant="secondary" className="text-[10px] ml-1">{data.totalPairs} MCQ pairs</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+
+        {/* Summary row */}
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            {
+              label: "Accuracy Δ",
+              value: (overallDelta >= 0 ? "+" : "") + overallDelta.toFixed(1) + "%",
+              color: overallDelta > 0 ? "text-green-600" : overallDelta < 0 ? "text-red-500" : "text-muted-foreground",
+              sub: "RAG vs baseline (avg)",
+            },
+            { label: "Flipped Correct",   value: String(totalImproved),  color: "text-green-600",        sub: "wrong→right with RAG" },
+            { label: "Flipped Wrong",     value: String(totalWorsened),  color: "text-red-500",           sub: "right→wrong with RAG" },
+            { label: "Unchanged",         value: String(totalUnchanged), color: "text-muted-foreground",  sub: "same outcome" },
+          ].map(({ label, value, color, sub }) => (
+            <div key={label} className="rounded-lg border border-border bg-muted/20 p-3">
+              <p className={`text-xl font-bold ${color}`}>{value}</p>
+              <p className="text-xs font-medium text-foreground">{label}</p>
+              <p className="text-[10px] text-muted-foreground">{sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Bar chart */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Accuracy % — Without RAG vs With RAG
+          </p>
+          <div className="h-[200px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData} margin={{ top: 4, right: 16, left: -10, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis domain={[0, 100]} unit="%" fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip
+                  formatter={(v: number) => `${v.toFixed(1)}%`}
+                  contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
+                <ReferenceLine y={50} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.5} />
+                <Bar dataKey="Without RAG" fill="#94a3b8" radius={[4,4,0,0]} barSize={28} />
+                <Bar dataKey="With RAG"    fill="hsl(var(--primary))" radius={[4,4,0,0]} barSize={28} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Per-model table */}
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Per-Model Summary</p>
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/50">
+                <tr>
+                  {["Model","N","Base Acc","RAG Acc","Δ Acc","Correct→Wrong","Wrong→Correct","Unchanged"].map(h => (
+                    <th key={h} className="px-3 py-2 text-left font-semibold text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.modelStats.map(m => (
+                  <tr key={m.modelId} className="border-t border-border hover:bg-muted/20">
+                    <td className="px-3 py-2 font-medium">{m.modelName}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{m.n}</td>
+                    <td className="px-3 py-2">{m.baseAccuracy.toFixed(1)}%</td>
+                    <td className="px-3 py-2">{m.ragAccuracy.toFixed(1)}%</td>
+                    <td className={`px-3 py-2 font-semibold ${m.deltaAccuracy > 0 ? "text-green-600" : m.deltaAccuracy < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                      {m.deltaAccuracy >= 0 ? "+" : ""}{m.deltaAccuracy.toFixed(1)}%
+                    </td>
+                    <td className="px-3 py-2 text-red-500">{m.worsened}</td>
+                    <td className="px-3 py-2 text-green-600">{m.improved}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{m.unchanged}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Flipped answers detail */}
+        {flippedRows.length > 0 && (
+          <div>
+            <button
+              className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 hover:text-foreground transition-colors"
+              onClick={() => setShowTable(!showTable)}
+            >
+              <ArrowUp className="h-3.5 w-3.5 text-primary" />
+              Flipped Answers — RAG Changed the Outcome ({flippedRows.length})
+              {showTable ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            {showTable && (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      {["Model","Question","Correct","Baseline","RAG","Result"].map(h => (
+                        <th key={h} className="px-3 py-2 text-left font-semibold text-muted-foreground">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flippedRows.map((r, i) => (
+                      <tr key={i} className={`border-t border-border ${r.ragCorrect ? "bg-green-50/60" : "bg-red-50/60"}`}>
+                        <td className="px-3 py-2 font-medium">{r.modelName}</td>
+                        <td className="px-3 py-2 text-muted-foreground max-w-[240px] truncate">{r.questionText}</td>
+                        <td className="px-3 py-2 font-bold text-foreground">{r.correctAnswer}</td>
+                        <td className={`px-3 py-2 font-mono ${r.baseCorrect ? "text-green-600" : "text-red-500"}`}>{r.baseAnswer}</td>
+                        <td className={`px-3 py-2 font-mono ${r.ragCorrect ? "text-green-600" : "text-red-500"}`}>{r.ragAnswer}</td>
+                        <td className="px-3 py-2">
+                          {r.ragCorrect
+                            ? <span className="inline-flex items-center gap-1 text-green-700 font-semibold"><ArrowUp className="h-3 w-3" />Improved</span>
+                            : <span className="inline-flex items-center gap-1 text-red-600 font-semibold"><ArrowDown className="h-3 w-3" />Worsened</span>
+                          }
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── RAG Comparison ────────────────────────────────────────────────────────────
 
 interface RagModelStat {
@@ -1360,8 +1578,11 @@ export default function Analytics() {
       {/* ── Disagreement Analysis ── */}
       <DisagreementSection />
 
-      {/* ── RAG Impact Analysis ── */}
+      {/* ── RAG Impact Analysis (Open-ended) ── */}
       <RagComparisonSection />
+
+      {/* ── MCQ RAG Accuracy Comparison ── */}
+      <McqRagComparisonSection />
     </motion.div>
   );
 }
