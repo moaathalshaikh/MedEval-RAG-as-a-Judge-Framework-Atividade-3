@@ -366,6 +366,52 @@ router.delete("/evaluations/:id", async (req: Request, res: Response): Promise<v
   res.json({ deleted: true });
 });
 
+// ── GET /evaluations/pending-count ────────────────────────────────────────────
+// Returns how many responses are pending evaluation (not yet evaluated by this judge).
+router.get("/evaluations/pending-count", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+
+  const datasetId  = req.query.datasetId  ? parseInt(req.query.datasetId  as string) : undefined;
+  const modelId    = req.query.modelId    ? parseInt(req.query.modelId    as string) : undefined;
+  const judgeModelId = req.query.judgeModelId ? parseInt(req.query.judgeModelId as string) : undefined;
+  const ragFilter  = (req.query.ragFilter as string | undefined) ?? "all";
+
+  if (!datasetId) { res.status(400).json({ error: "datasetId required" }); return; }
+
+  // Get all response IDs for this dataset (+ optional model + ragFilter)
+  const allResponses = await db
+    .select({ id: modelResponsesTable.id, ragEnabled: modelResponsesTable.ragEnabled, modelId: modelResponsesTable.modelId })
+    .from(modelResponsesTable)
+    .leftJoin(questionsTable, eq(questionsTable.id, modelResponsesTable.questionId))
+    .where(eq(questionsTable.datasetId, datasetId));
+
+  const filtered = allResponses.filter((r) => {
+    if (modelId != null && r.modelId !== modelId) return false;
+    if (ragFilter === "rag")      return r.ragEnabled === true;
+    if (ragFilter === "baseline") return r.ragEnabled !== true;
+    return true;
+  });
+
+  const total = filtered.length;
+
+  if (total === 0 || !judgeModelId) {
+    res.json({ total, alreadyEvaluated: 0, pending: total });
+    return;
+  }
+
+  const responseIds = filtered.map((r) => r.id);
+  const evaluated = await db
+    .select({ responseId: judgeEvaluationsTable.responseId })
+    .from(judgeEvaluationsTable)
+    .where(and(
+      eq(judgeEvaluationsTable.judgeModelId, judgeModelId),
+      inArray(judgeEvaluationsTable.responseId, responseIds)
+    ));
+
+  const alreadyEvaluated = new Set(evaluated.map((e) => e.responseId)).size;
+  res.json({ total, alreadyEvaluated, pending: total - alreadyEvaluated });
+});
+
 router.get("/evaluations/:id", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
 

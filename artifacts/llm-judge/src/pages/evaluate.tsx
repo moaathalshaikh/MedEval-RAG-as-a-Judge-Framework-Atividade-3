@@ -90,6 +90,23 @@ function useDatasetQuestionTypes(datasetId: string) {
   });
 }
 
+interface PendingCount { total: number; alreadyEvaluated: number; pending: number; }
+
+function usePendingCount(datasetId: string, judgeModelId: string, modelId: string, ragFilter: string) {
+  return useQuery<PendingCount>({
+    queryKey: ["evaluations", "pending-count", datasetId, judgeModelId, modelId, ragFilter],
+    queryFn: () => {
+      const p = new URLSearchParams({ datasetId });
+      if (judgeModelId) p.set("judgeModelId", judgeModelId);
+      if (modelId && modelId !== "all") p.set("modelId", modelId);
+      if (ragFilter !== "all") p.set("ragFilter", ragFilter);
+      return fetch(`/api/evaluations/pending-count?${p}`, { credentials: "include" }).then(r => r.json());
+    },
+    enabled: !!datasetId,
+    staleTime: 0,
+  });
+}
+
 function useDatasetQuestions(datasetId: string) {
   return useQuery<{ id: number; questionType: string }[]>({
     queryKey: ["questions", "list", datasetId],
@@ -170,6 +187,7 @@ export default function Evaluate() {
   const { data: refStatus } = useRefStatus(selectedDatasetId || null, selectedJudgeId);
   const { data: questionTypes } = useDatasetQuestionTypes(selectedDatasetId);
   const { data: allQuestions } = useDatasetQuestions(selectedDatasetId);
+  const { data: pendingCount } = usePendingCount(selectedDatasetId, selectedJudgeId, selectedModelId, ragFilter);
 
   // Range derived values
   const totalQs = allQuestions?.length ?? questionTypes?.total ?? 0;
@@ -249,7 +267,23 @@ export default function Evaluate() {
           setEvalResult(res);
           queryClient.invalidateQueries({ queryKey: getListEvaluationsQueryKey() });
           queryClient.invalidateQueries({ queryKey: ["results"] });
-          toast({ title: "Evaluation complete", description: `Evaluated ${res.evaluated} responses.` });
+          queryClient.invalidateQueries({ queryKey: ["evaluations", "pending-count"] });
+          if (res.evaluated === 0 && res.skipped > 0) {
+            toast({
+              title: "Nothing new to evaluate",
+              description: `All ${res.skipped} responses were already evaluated by this judge. No duplicates created.`,
+            });
+          } else if (res.evaluated === 0 && res.skipped === 0) {
+            toast({
+              title: "No responses found",
+              description: ragFilter === "rag"
+                ? "No RAG responses found for this dataset. Run RAG Re-Inference first."
+                : "No responses match the current filter.",
+              variant: "destructive",
+            });
+          } else {
+            toast({ title: "Evaluation complete", description: `Evaluated ${res.evaluated} responses${res.skipped > 0 ? ` · ${res.skipped} skipped (already done)` : ""}.` });
+          }
         },
         onError: (err) => {
           toast({ title: "Evaluation failed", description: err.error ?? "Unknown error", variant: "destructive" });
@@ -651,10 +685,34 @@ export default function Evaluate() {
                 </div>
               )}
 
+              {/* Pending count summary */}
+              {selectedDatasetId && pendingCount && !runJudge.isPending && (
+                <div className={`rounded-lg px-3 py-2 text-xs flex items-center justify-between border ${
+                  pendingCount.pending === 0
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-muted/40 border-border text-muted-foreground"
+                }`}>
+                  <span>
+                    {pendingCount.pending === 0
+                      ? "⚠ All responses already evaluated — nothing new to run"
+                      : <>
+                          <span className="font-semibold text-foreground">{pendingCount.pending}</span> pending
+                          {pendingCount.alreadyEvaluated > 0 && (
+                            <> · <span className="line-through">{pendingCount.alreadyEvaluated}</span> already done (will skip)</>
+                          )}
+                        </>
+                    }
+                  </span>
+                  {ragFilter === "rag" && pendingCount.total === 0 && (
+                    <span className="font-medium text-amber-700">Run RAG Re-Inference first</span>
+                  )}
+                </div>
+              )}
+
               <Button
                 className="w-full h-12 gap-2 text-base"
                 onClick={handleEvaluate}
-                disabled={runJudge.isPending || !isReady}
+                disabled={runJudge.isPending || !isReady || pendingCount?.pending === 0}
               >
                 {runJudge.isPending ? (
                   <>
@@ -664,7 +722,9 @@ export default function Evaluate() {
                 ) : (
                   <>
                     <Play className="h-4 w-4 fill-current" />
-                    Start Evaluation
+                    {pendingCount && pendingCount.pending > 0
+                      ? `Start Evaluation (${pendingCount.pending} responses)`
+                      : "Start Evaluation"}
                   </>
                 )}
               </Button>

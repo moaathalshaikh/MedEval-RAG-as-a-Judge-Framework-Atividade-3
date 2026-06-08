@@ -432,6 +432,16 @@ function ReInferCard({ docs, onDone }: { docs: RagDoc[]; onDone: () => void }) {
 
   async function handleRun() {
     if (!datasetId || !modelId) return;
+
+    if (embeddedDocs.length === 0) {
+      toast({
+        title: "No embedded documents",
+        description: "Add and embed at least one document before running RAG re-inference.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setRunning(true);
     setResult(null);
     try {
@@ -445,10 +455,24 @@ function ReInferCard({ docs, onDone }: { docs: RagDoc[]; onDone: () => void }) {
         }),
       });
       setResult(data);
-      toast({
-        title: "RAG Re-inference complete",
-        description: `${data.generated} responses generated`,
-      });
+
+      if (data.generated === 0 && data.skipped > 0) {
+        toast({
+          title: "Already done",
+          description: `All ${data.skipped} RAG responses already exist for this dataset + model combination. Delete them first to re-run.`,
+        });
+      } else if (data.generated === 0 && data.errors?.length > 0) {
+        toast({
+          title: "Re-inference failed",
+          description: data.errors[0],
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "RAG Re-inference complete",
+          description: `${data.generated} responses generated${data.skipped > 0 ? ` · ${data.skipped} skipped` : ""}`,
+        });
+      }
       onDone();
     } catch (e: any) {
       toast({ title: "Re-inference failed", description: e.message, variant: "destructive" });
