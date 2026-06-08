@@ -13,6 +13,7 @@ import {
   Sparkles,
   Clock,
   BookOpen,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@workspace/replit-auth-web";
@@ -45,6 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
       { path: "/import", label: "Import Responses", icon: Upload, step: 1 },
       { path: "/reference-answers", label: "Reference Answers", icon: Sparkles, step: 2 },
       { path: "/evaluate", label: "Evaluate", icon: Play, step: 3 },
+      { path: "/rag", label: "RAG Knowledge Base", icon: FlaskConical, step: 4 },
     ],
   },
   {

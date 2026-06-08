@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, unique, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, unique, real, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { questionsTable } from "./questions";
@@ -18,7 +18,10 @@ export const modelResponsesTable = pgTable("model_responses", {
   // MCQ extra fields
   mcqCorrect: text("mcq_correct"),
   mcqScore: text("mcq_score"),
-}, (t) => [unique("uq_response_question_model").on(t.questionId, t.modelId)]);
+  // RAG fields (Activity 3)
+  ragEnabled: boolean("rag_enabled").notNull().default(false),
+  ragContext: text("rag_context"),
+}, (t) => [unique("uq_response_question_model_rag").on(t.questionId, t.modelId, t.ragEnabled)]);
 
 export const insertModelResponseSchema = createInsertSchema(modelResponsesTable).omit({ id: true, createdAt: true });
 export type InsertModelResponse = z.infer<typeof insertModelResponseSchema>;

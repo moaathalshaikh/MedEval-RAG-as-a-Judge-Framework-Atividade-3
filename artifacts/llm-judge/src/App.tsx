@@ -19,6 +19,7 @@ import Settings from "@/pages/settings";
 import EmailAction from "@/pages/email-action";
 import History from "@/pages/history";
 import Methodology from "@/pages/methodology";
+import RagKnowledgeBase from "@/pages/rag-knowledge-base";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,7 @@ function Router() {
         <Route path="/results" component={Results} />
         <Route path="/analytics" component={Analytics} />
         <Route path="/history" component={History} />
+        <Route path="/rag" component={RagKnowledgeBase} />
         <Route path="/methodology" component={Methodology} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />

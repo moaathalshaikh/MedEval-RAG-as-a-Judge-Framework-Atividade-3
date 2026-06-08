@@ -14,6 +14,7 @@ import promptsRouter from "./prompts";
 import humanEvaluationsRouter from "./human-evaluations";
 import responseFlagsRouter from "./response-flags";
 import adminRouter from "./admin";
+import ragRouter from "./rag";
 
 const router: IRouter = Router();
 
@@ -46,5 +47,6 @@ router.use(promptsRouter);
 router.use(humanEvaluationsRouter);
 router.use(responseFlagsRouter);
 router.use(adminRouter);
+router.use(ragRouter);
 
 export default router;
