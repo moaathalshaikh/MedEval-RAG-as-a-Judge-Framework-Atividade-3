@@ -120,6 +120,7 @@ function useRunJudgeCustom() {
       useReferenceAnswers: boolean;
       evalPromptId?: string;
       questionIds?: number[];
+      ragFilter?: "all" | "baseline" | "rag";
     }
   >({
     mutationFn: (body) =>
@@ -154,6 +155,7 @@ export default function Evaluate() {
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Question range state
+  const [ragFilter, setRagFilter] = useState<"all" | "baseline" | "rag">("all");
   const [rangeMode, setRangeMode] = useState(false);
   const [fromQ, setFromQ] = useState(1);
   const [toQRaw, setToQRaw] = useState<number | null>(null);
@@ -240,6 +242,7 @@ export default function Evaluate() {
         useReferenceAnswers: isMixedOrOpen,
         evalPromptId: evalPromptId || "system_evaluation",
         questionIds: slicedQuestionIds,
+        ragFilter,
       },
       {
         onSuccess: (res) => {
@@ -464,6 +467,39 @@ export default function Evaluate() {
                     </Select>
                   )}
                 </div>
+              </div>
+
+              {/* RAG Filter */}
+              <div className="pt-1 border-t border-border space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Play className="h-3.5 w-3.5" />
+                  Response Type to Evaluate
+                </div>
+                <div className="flex gap-1">
+                  {(["all", "baseline", "rag"] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      onClick={() => setRagFilter(opt)}
+                      className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                        ragFilter === opt
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      {opt === "all" ? "All responses" : opt === "baseline" ? "Baseline only (no RAG)" : "RAG only"}
+                    </button>
+                  ))}
+                </div>
+                {ragFilter === "rag" && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    Evaluates only RAG-augmented responses. Run Baseline first, then RAG, to enable the before/after comparison in Analytics.
+                  </p>
+                )}
+                {ragFilter === "baseline" && (
+                  <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+                    Evaluates only baseline responses (rag_enabled = false). Skips any RAG-augmented responses.
+                  </p>
+                )}
               </div>
 
               {/* Question Range */}

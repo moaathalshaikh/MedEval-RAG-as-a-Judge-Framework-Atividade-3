@@ -107,6 +107,8 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
   const useReferenceAnswers = !!(req.body as Record<string, unknown>).useReferenceAnswers;
   const evalPromptId = (req.body as Record<string, unknown>).evalPromptId as string | undefined;
   const questionIds = (req.body as Record<string, unknown>).questionIds as number[] | undefined;
+  // ragFilter: "all" (default) | "baseline" (rag_enabled=false) | "rag" (rag_enabled=true)
+  const ragFilter = ((req.body as Record<string, unknown>).ragFilter as string | undefined) ?? "all";
 
   // Resolve judge model from user settings
   let resolvedJudgeModelId = judgeModelId;
@@ -175,7 +177,8 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
       .leftJoin(modelsTable, eq(modelsTable.id, modelResponsesTable.modelId));
     responseRows = allResponses.filter((r) =>
       r.question && qIds.includes(r.question.id) &&
-      (modelId == null || r.response.modelId === modelId)
+      (modelId == null || r.response.modelId === modelId) &&
+      (ragFilter === "all" || (ragFilter === "rag" ? r.response.ragEnabled === true : r.response.ragEnabled !== true))
     ) as typeof responseRows;
   } else if (modelId != null) {
     const allResponses = await db
@@ -233,11 +236,25 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
     }
   }
 
+  // Pre-fetch already-evaluated response IDs for this judge model to avoid duplicates
+  const alreadyEvaluated = new Set(
+    (await db
+      .select({ responseId: judgeEvaluationsTable.responseId })
+      .from(judgeEvaluationsTable)
+      .where(eq(judgeEvaluationsTable.judgeModelId, resolvedJudgeModelId!))
+    ).map((r) => r.responseId)
+  );
+
   let evaluated = 0;
   let skipped = 0;
   const errors: string[] = [];
 
   for (const { response, question } of responseRows) {
+    // Skip if this response was already evaluated by the same judge model
+    if (alreadyEvaluated.has(response.id)) {
+      skipped++;
+      continue;
+    }
     if (!question) {
       skipped++;
       errors.push(`Response ${response.id}: question not found`);
