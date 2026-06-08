@@ -310,13 +310,14 @@ router.post("/rag/re-infer", async (req: Request, res: Response): Promise<void> 
 // ── GET /rag/stats ────────────────────────────────────────────────────────────
 router.get("/rag/stats", async (req: Request, res: Response): Promise<void> => {
   if (!requireAuth(req, res)) return;
-  const [docCount] = await db.execute(sql`SELECT COUNT(*)::int AS n FROM rag_documents`) as any;
-  const [chunkCount] = await db.execute(sql`SELECT COUNT(*)::int AS n FROM rag_chunks WHERE embedding IS NOT NULL`) as any;
-  const [ragResponseCount] = await db.execute(sql`SELECT COUNT(*)::int AS n FROM model_responses WHERE rag_enabled = true`) as any;
+  const docRes      = await db.execute(sql`SELECT COUNT(*)::int AS n FROM rag_documents`);
+  const chunkRes    = await db.execute(sql`SELECT COUNT(*)::int AS n FROM rag_chunks WHERE embedding IS NOT NULL`);
+  const ragRes      = await db.execute(sql`SELECT COUNT(*)::int AS n FROM model_responses WHERE rag_enabled = true`);
+  const row = (r: any) => (Array.isArray(r) ? r[0] : r?.rows?.[0]) ?? {};
   res.json({
-    documents: Number((Array.isArray(docCount) ? docCount[0] : (docCount as any)?.rows?.[0])?.n ?? 0),
-    chunks: Number((Array.isArray(chunkCount) ? chunkCount[0] : (chunkCount as any)?.rows?.[0])?.n ?? 0),
-    ragResponses: Number((Array.isArray(ragResponseCount) ? ragResponseCount[0] : (ragResponseCount as any)?.rows?.[0])?.n ?? 0),
+    documents:    Number(row(docRes).n   ?? 0),
+    chunks:       Number(row(chunkRes).n ?? 0),
+    ragResponses: Number(row(ragRes).n   ?? 0),
   });
 });
 
