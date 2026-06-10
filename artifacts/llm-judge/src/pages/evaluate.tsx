@@ -128,9 +128,12 @@ function useDatasetQuestions(datasetId: string) {
 function useModelProgress(datasetId: string, questionType: string, ragFilter: string, enabled: boolean) {
   return useQuery<ModelProgress[]>({
     queryKey: ["evaluations", "model-progress", datasetId, questionType, ragFilter],
-    queryFn: () => {
+    queryFn: async () => {
       const p = new URLSearchParams({ datasetId, questionType, ragFilter });
-      return fetch(`/api/evaluations/model-progress?${p}`, { credentials: "include" }).then((r) => r.json());
+      const r = await fetch(`/api/evaluations/model-progress?${p}`, { credentials: "include" });
+      if (!r.ok) throw new Error(`model-progress ${r.status}`);
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!datasetId && enabled,
     staleTime: 0,
@@ -200,12 +203,13 @@ export default function Evaluate() {
   const [progressQType, setProgressQType] = useState<"OPEN_ENDED" | "MCQ">("OPEN_ENDED");
   const batchAbortRef = useRef(false);
 
-  const { data: modelProgress, refetch: refetchProgress } = useModelProgress(
+  const { data: modelProgressRaw, refetch: refetchProgress } = useModelProgress(
     selectedDatasetId,
     progressQType,
     "baseline",
     showProgress && !!selectedDatasetId,
   );
+  const modelProgress = Array.isArray(modelProgressRaw) ? modelProgressRaw : undefined;
 
   // Question range state
   const [ragFilter, setRagFilter] = useState<"all" | "baseline" | "rag">("all");

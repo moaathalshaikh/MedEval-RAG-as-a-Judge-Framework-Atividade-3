@@ -463,35 +463,38 @@ router.get("/evaluations/model-progress", async (req: Request, res: Response): P
   const ragFilter    = (req.query.ragFilter as string | undefined) ?? "baseline";
   const ragEnabled   = ragFilter === "rag" ? true : ragFilter === "baseline" ? false : null;
 
-  let r;
-  if (ragEnabled === null) {
-    r = await db.execute(sql`
-      SELECT m.id_model AS model_id, m.model_name,
-        COUNT(DISTINCT mr.id_response)::int AS total,
-        COUNT(DISTINCT je.id_response)::int AS evaluated
-      FROM models m
-      JOIN model_responses mr ON mr.id_model = m.id_model
-      JOIN questions q ON q.id_question = mr.id_question
-      LEFT JOIN judge_evaluations je ON je.id_response = mr.id_response
-      WHERE q.dataset_id = ${datasetId} AND q.question_type = ${questionType}
-      GROUP BY m.id_model, m.model_name ORDER BY evaluated ASC, m.model_name`);
-  } else {
-    r = await db.execute(sql`
-      SELECT m.id_model AS model_id, m.model_name,
-        COUNT(DISTINCT mr.id_response)::int AS total,
-        COUNT(DISTINCT je.id_response)::int AS evaluated
-      FROM models m
-      JOIN model_responses mr ON mr.id_model = m.id_model
-      JOIN questions q ON q.id_question = mr.id_question
-      LEFT JOIN judge_evaluations je ON je.id_response = mr.id_response
-      WHERE q.dataset_id = ${datasetId} AND q.question_type = ${questionType}
-        AND mr.rag_enabled = ${ragEnabled}
-      GROUP BY m.id_model, m.model_name ORDER BY evaluated ASC, m.model_name`);
-  }
+  type ProgressRow = { model_id: number; model_name: string; total: number; evaluated: number };
 
-  const rows = (Array.isArray(r) ? r : (r as { rows?: unknown[] })?.rows ?? []) as Array<{
-    model_id: unknown; model_name: unknown; total: unknown; evaluated: unknown;
-  }>;
+  let rows: ProgressRow[] = [];
+  try {
+    const r = ragEnabled === null
+      ? await db.execute(sql`
+          SELECT m.id_model AS model_id, m.model_name,
+            COUNT(DISTINCT mr.id_response)::int AS total,
+            COUNT(DISTINCT je.id_response)::int AS evaluated
+          FROM models m
+          JOIN model_responses mr ON mr.id_model = m.id_model
+          JOIN questions q ON q.id_question = mr.id_question
+          LEFT JOIN judge_evaluations je ON je.id_response = mr.id_response
+          WHERE q.dataset_id = ${datasetId} AND q.question_type = ${questionType}
+          GROUP BY m.id_model, m.model_name ORDER BY evaluated ASC, m.model_name`)
+      : await db.execute(sql`
+          SELECT m.id_model AS model_id, m.model_name,
+            COUNT(DISTINCT mr.id_response)::int AS total,
+            COUNT(DISTINCT je.id_response)::int AS evaluated
+          FROM models m
+          JOIN model_responses mr ON mr.id_model = m.id_model
+          JOIN questions q ON q.id_question = mr.id_question
+          LEFT JOIN judge_evaluations je ON je.id_response = mr.id_response
+          WHERE q.dataset_id = ${datasetId} AND q.question_type = ${questionType}
+            AND mr.rag_enabled = ${ragEnabled}
+          GROUP BY m.id_model, m.model_name ORDER BY evaluated ASC, m.model_name`);
+    rows = r.rows as ProgressRow[];
+  } catch (e) {
+    logger.error({ error: String(e) }, "model-progress query failed");
+    res.status(500).json({ error: "Query failed" });
+    return;
+  }
 
   res.json(rows.map((row) => ({
     modelId:   Number(row.model_id),
