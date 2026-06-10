@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp, UserCheck, Users, BarChart3, Flag, X } from "lucide-react";
+import { ChevronRight, Filter, Download, Trash2, RotateCcw, CheckCircle2, XCircle, Eraser, TrendingUp, UserCheck, Users, BarChart3, Flag, X, FlaskConical } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { currentUnifiedUser } from "@/components/auth-gate";
@@ -910,6 +910,165 @@ function SpearmanCard({ datasetId, modelId }: { datasetId?: number; modelId?: nu
   );
 }
 
+// ── RAG Before/After Comparison Card ─────────────────────────────────────────
+
+interface RagOeModelStat {
+  modelId: number; modelName: string; n: number;
+  avgScoreBefore: number; avgScoreAfter: number; avgDelta: number;
+  spearmanBeforeAfter: number; improved: number; worsened: number; unchanged: number;
+}
+interface RagOeData { totalPairs: number; modelStats: RagOeModelStat[]; }
+
+interface RagMcqModelStat {
+  modelId: number; modelName: string; n: number;
+  baseAccuracy: number; ragAccuracy: number; deltaAccuracy: number;
+  improved: number; worsened: number; unchanged: number;
+}
+interface RagMcqData { totalPairs: number; modelStats: RagMcqModelStat[]; }
+
+function RagComparisonCard() {
+  const [subTab, setSubTab] = useState<"open_ended" | "mcq">("open_ended");
+
+  const { data: oeData, isLoading: oeLoading } = useQuery<RagOeData>({
+    queryKey: ["analytics", "rag-comparison"],
+    queryFn: async () => {
+      const r = await fetch("/api/analytics/rag-comparison", { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: mcqData, isLoading: mcqLoading } = useQuery<RagMcqData>({
+    queryKey: ["analytics", "mcq-rag-comparison"],
+    queryFn: async () => {
+      const r = await fetch("/api/analytics/mcq-rag-comparison", { credentials: "include" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const hasOe  = (oeData?.totalPairs  ?? 0) > 0;
+  const hasMcq = (mcqData?.totalPairs ?? 0) > 0;
+  const hasAny = hasOe || hasMcq;
+
+  return (
+    <Card className="border-emerald-200 bg-emerald-50/20">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-emerald-600" />
+            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">
+              RAG Before / After Comparison
+            </p>
+          </div>
+          {hasAny && (
+            <div className="flex border rounded-md overflow-hidden text-xs">
+              {(["open_ended", "mcq"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setSubTab(t)}
+                  className={`px-3 py-1 transition-colors ${
+                    subTab === t
+                      ? "bg-emerald-600 text-white"
+                      : "text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {t === "open_ended" ? "Open-ended" : "MCQ"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {(oeLoading || mcqLoading) && !hasAny ? (
+          <Skeleton className="h-20 w-full" />
+        ) : !hasAny ? (
+          <p className="text-xs text-muted-foreground py-3 text-center">
+            No RAG-paired data yet. Complete: RAG Knowledge Base → embed documents → Run RAG Re-Inference → evaluate RAG responses in Step 3.
+          </p>
+        ) : subTab === "open_ended" ? (
+          !hasOe ? (
+            <p className="text-xs text-muted-foreground text-center py-2">No open-ended RAG pairs evaluated yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b text-right">
+                    <th className="text-left py-1.5 pr-3 font-medium">Model</th>
+                    <th className="pr-3 font-medium">n</th>
+                    <th className="pr-3 font-medium">Before</th>
+                    <th className="pr-3 font-medium">After</th>
+                    <th className="pr-3 font-medium">Δ</th>
+                    <th className="pr-3 font-medium">Spearman ρ</th>
+                    <th className="pr-3 font-medium text-green-600">↑</th>
+                    <th className="font-medium text-red-500">↓</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {oeData!.modelStats.map((s) => (
+                    <tr key={s.modelId} className="border-b border-border/40 hover:bg-muted/30 text-right">
+                      <td className="text-left py-1.5 pr-3 font-medium max-w-[160px] truncate">{s.modelName}</td>
+                      <td className="pr-3 text-muted-foreground">{s.n}</td>
+                      <td className="pr-3">{s.avgScoreBefore.toFixed(2)}</td>
+                      <td className="pr-3">{s.avgScoreAfter.toFixed(2)}</td>
+                      <td className={`pr-3 font-semibold ${s.avgDelta > 0 ? "text-green-600" : s.avgDelta < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                        {s.avgDelta > 0 ? "+" : ""}{s.avgDelta.toFixed(2)}
+                      </td>
+                      <td className="pr-3 font-mono text-primary">{s.spearmanBeforeAfter.toFixed(3)}</td>
+                      <td className="pr-3 text-green-600">{s.improved}</td>
+                      <td className="text-red-500">{s.worsened}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-muted-foreground mt-2">
+                Spearman ρ: rank correlation between baseline and RAG scores per model. Δ: mean score change (positive = RAG improved answers).
+              </p>
+            </div>
+          )
+        ) : (
+          !hasMcq ? (
+            <p className="text-xs text-muted-foreground text-center py-2">No MCQ RAG pairs found yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b text-right">
+                    <th className="text-left py-1.5 pr-3 font-medium">Model</th>
+                    <th className="pr-3 font-medium">n</th>
+                    <th className="pr-3 font-medium">Accuracy Before</th>
+                    <th className="pr-3 font-medium">Accuracy After</th>
+                    <th className="pr-3 font-medium">Δ</th>
+                    <th className="pr-3 font-medium text-green-600">↑ Better</th>
+                    <th className="font-medium text-red-500">↓ Worse</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mcqData!.modelStats.map((s) => (
+                    <tr key={s.modelId} className="border-b border-border/40 hover:bg-muted/30 text-right">
+                      <td className="text-left py-1.5 pr-3 font-medium max-w-[160px] truncate">{s.modelName}</td>
+                      <td className="pr-3 text-muted-foreground">{s.n}</td>
+                      <td className="pr-3">{s.baseAccuracy.toFixed(1)}%</td>
+                      <td className="pr-3">{s.ragAccuracy.toFixed(1)}%</td>
+                      <td className={`pr-3 font-semibold ${s.deltaAccuracy > 0 ? "text-green-600" : s.deltaAccuracy < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                        {s.deltaAccuracy > 0 ? "+" : ""}{s.deltaAccuracy.toFixed(1)}%
+                      </td>
+                      <td className="pr-3 text-green-600">{s.improved}</td>
+                      <td className="text-red-500">{s.worsened}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function Results() {
@@ -1067,6 +1226,9 @@ export default function Results() {
             modelId={modelId !== "all" && modelId !== "" ? parseInt(modelId) : undefined}
           />
         )}
+
+        {/* ── RAG before/after comparison ── */}
+        {!isLoading && <RagComparisonCard />}
 
         {/* ── Open-ended tab ── */}
         <TabsContent value="open_ended" className="mt-0">
