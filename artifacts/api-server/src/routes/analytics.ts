@@ -568,7 +568,7 @@ router.get("/analytics/research-insights", async (req, res): Promise<void> => {
   const bestPair = [...pairs].sort((a, b) => Number(a.delta) - Number(b.delta))[0] ?? null;
   let bestAgreement = null;
   if (bestPair) {
-    const [qRow] = await db.execute(sql`
+    const bRes = await db.execute(sql`
       SELECT q.question_text, mr.response_text, m.model_name
       FROM model_responses mr
       JOIN questions q ON q.id_question = mr.id_question
@@ -576,6 +576,7 @@ router.get("/analytics/research-insights", async (req, res): Promise<void> => {
       WHERE mr.id_response = ${bestPair.id_response}
       LIMIT 1
     `);
+    const qRow = (Array.isArray(bRes) ? bRes : (bRes as any).rows ?? [])[0] ?? null;
     if (qRow) bestAgreement = {
       responseId: bestPair.id_response,
       questionText: (qRow as any).question_text,

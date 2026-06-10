@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useListDatasets, useListModels } from "@workspace/api-client-react";
 import {
   BookOpen, Plus, Trash2, Zap, Search, Play, Loader2,
-  FileText, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Database,
+  FileText, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Database, Upload, X,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -195,6 +195,49 @@ function AddDocumentForm({ onAdded }: { onAdded: () => void }) {
   const [sourceRef, setSourceRef] = useState("");
   const [targetType, setTargetType] = useState<TargetType>("all");
   const [saving, setSaving] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function readTxtFile(file: File) {
+    if (!file.name.endsWith(".txt") && file.type !== "text/plain") {
+      toast({ title: "Invalid file type", description: "Only .txt files are supported.", variant: "destructive" });
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Max 50 MB.", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string;
+      setContent(text);
+      setUploadedFileName(file.name);
+      if (!title.trim()) {
+        setTitle(file.name.replace(/\.txt$/i, "").replace(/[_-]/g, " "));
+      }
+    };
+    reader.onerror = () => toast({ title: "Read error", description: "Could not read the file.", variant: "destructive" });
+    reader.readAsText(file, "utf-8");
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) readTxtFile(file);
+    e.target.value = "";
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) readTxtFile(file);
+  }
+
+  function clearFile() {
+    setContent("");
+    setUploadedFileName(null);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -281,15 +324,76 @@ function AddDocumentForm({ onAdded }: { onAdded: () => void }) {
         </div>
 
         <div className="col-span-2 space-y-1.5">
-          <Label>Content * <span className="text-muted-foreground font-normal">(plain text — paste directly from guideline)</span></Label>
-          <Textarea
-            placeholder="Paste the full text of the clinical guideline, consensus statement, or reference document here..."
-            value={content} onChange={(e) => setContent(e.target.value)}
-            className="min-h-[200px] font-mono text-xs leading-relaxed"
-            required
-          />
+          <div className="flex items-center justify-between">
+            <Label>Content * <span className="text-muted-foreground font-normal">(paste text or upload .txt file)</span></Label>
+            <div className="flex items-center gap-1.5">
+              {uploadedFileName && (
+                <span className="flex items-center gap-1 text-[10px] text-green-700 bg-green-50 border border-green-200 rounded px-2 py-0.5">
+                  <FileText className="h-3 w-3" />
+                  {uploadedFileName}
+                  <button type="button" onClick={clearFile} className="ml-0.5 hover:text-red-500">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="h-3 w-3" />
+                Upload .txt
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,text/plain"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </div>
+          </div>
+
+          {/* Drop zone — shown when no content yet */}
+          {!content && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors py-8 ${
+                isDragOver
+                  ? "border-primary bg-primary/5 text-primary"
+                  : "border-border text-muted-foreground hover:border-primary/50 hover:bg-muted/40"
+              }`}
+            >
+              <Upload className="h-6 w-6" />
+              <p className="text-sm font-medium">Drop .txt file here or click to browse</p>
+              <p className="text-xs">Supports any size — UTF-8 text files</p>
+            </div>
+          )}
+
+          {/* Textarea — shown once content is loaded/pasted */}
+          {content && (
+            <Textarea
+              placeholder="Paste the full text of the clinical guideline, consensus statement, or reference document here..."
+              value={content} onChange={(e) => { setContent(e.target.value); setUploadedFileName(null); }}
+              className="min-h-[200px] font-mono text-xs leading-relaxed"
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+            />
+          )}
+
           <p className="text-[10px] text-muted-foreground">
             {content.length.toLocaleString()} characters · approx. {Math.ceil(content.length / 800)} chunks
+            {content.length > 500_000 && (
+              <span className="ml-2 text-amber-600 font-medium">
+                · Large document — will be split into ~{Math.ceil(content.length / 800)} chunks
+              </span>
+            )}
           </p>
         </div>
       </div>
