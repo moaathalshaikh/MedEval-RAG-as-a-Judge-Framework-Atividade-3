@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, judgeEvaluationsTable, modelResponsesTable, modelsTable, questionsTable, judgeModelsTable, settingsTable, referenceAnswersTable } from "@workspace/db";
 import { logActivity } from "../lib/activity";
 import {
@@ -446,6 +446,60 @@ router.get("/evaluations/:id", async (req: Request, res: Response): Promise<void
     modelName: row.modelName,
     judgeModelName: judgeModel?.displayName ?? null,
   }));
+});
+
+// ── GET /evaluations/model-progress ───────────────────────────────────────────
+// Per-model evaluation progress from DB for a given dataset + question type.
+router.get("/evaluations/model-progress", async (req: Request, res: Response): Promise<void> => {
+  if (!requireAuth(req, res)) return;
+
+  const datasetId = req.query.datasetId ? parseInt(req.query.datasetId as string) : undefined;
+  if (!datasetId || isNaN(datasetId)) {
+    res.status(400).json({ error: "datasetId required" });
+    return;
+  }
+
+  const questionType = (req.query.questionType as string | undefined) ?? "OPEN_ENDED";
+  const ragFilter    = (req.query.ragFilter as string | undefined) ?? "baseline";
+  const ragEnabled   = ragFilter === "rag" ? true : ragFilter === "baseline" ? false : null;
+
+  let r;
+  if (ragEnabled === null) {
+    r = await db.execute(sql`
+      SELECT m.id_model AS model_id, m.model_name,
+        COUNT(DISTINCT mr.id_response)::int AS total,
+        COUNT(DISTINCT je.id_response)::int AS evaluated
+      FROM models m
+      JOIN model_responses mr ON mr.id_model = m.id_model
+      JOIN questions q ON q.id_question = mr.id_question
+      LEFT JOIN judge_evaluations je ON je.id_response = mr.id_response
+      WHERE q.dataset_id = ${datasetId} AND q.question_type = ${questionType}
+      GROUP BY m.id_model, m.model_name ORDER BY evaluated ASC, m.model_name`);
+  } else {
+    r = await db.execute(sql`
+      SELECT m.id_model AS model_id, m.model_name,
+        COUNT(DISTINCT mr.id_response)::int AS total,
+        COUNT(DISTINCT je.id_response)::int AS evaluated
+      FROM models m
+      JOIN model_responses mr ON mr.id_model = m.id_model
+      JOIN questions q ON q.id_question = mr.id_question
+      LEFT JOIN judge_evaluations je ON je.id_response = mr.id_response
+      WHERE q.dataset_id = ${datasetId} AND q.question_type = ${questionType}
+        AND mr.rag_enabled = ${ragEnabled}
+      GROUP BY m.id_model, m.model_name ORDER BY evaluated ASC, m.model_name`);
+  }
+
+  const rows = (Array.isArray(r) ? r : (r as { rows?: unknown[] })?.rows ?? []) as Array<{
+    model_id: unknown; model_name: unknown; total: unknown; evaluated: unknown;
+  }>;
+
+  res.json(rows.map((row) => ({
+    modelId:   Number(row.model_id),
+    modelName: String(row.model_name),
+    total:     Number(row.total),
+    evaluated: Number(row.evaluated),
+    pending:   Number(row.total) - Number(row.evaluated),
+  })));
 });
 
 export default router;
