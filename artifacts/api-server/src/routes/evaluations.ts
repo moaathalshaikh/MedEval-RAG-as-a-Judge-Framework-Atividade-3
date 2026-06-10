@@ -249,96 +249,100 @@ router.post("/evaluations/run", async (req: Request, res: Response): Promise<voi
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const { response, question } of responseRows) {
-    // Skip if this response was already evaluated by the same judge model
-    if (alreadyEvaluated.has(response.id)) {
-      skipped++;
-      continue;
-    }
+  // Concurrency: MCQ is instant (DB write only); open-ended needs LLM calls.
+  // Use 15 parallel workers — safe for most LLM providers without rate-limiting.
+  const CONCURRENCY = isMCQOnly ? 50 : 15;
+
+  async function processOne(response: typeof modelResponsesTable.$inferSelect, question: typeof questionsTable.$inferSelect | null): Promise<"evaluated" | "skipped"> {
+    if (alreadyEvaluated.has(response.id)) return "skipped";
     if (!question) {
-      skipped++;
       errors.push(`Response ${response.id}: question not found`);
-      continue;
+      return "skipped";
     }
 
-    try {
-      // ── MCQ: deterministic auto-grading — no LLM call needed ──────────────
-      if (question.questionType === "MCQ") {
-        const { score, reasoning, confirmedModel } = scoreMCQDeterministic(
-          response.responseText,
-          question.goldAnswer
-        );
-
-        await db.insert(judgeEvaluationsTable).values({
-          responseId: response.id,
-          judgeModelId: resolvedJudgeModelId!,
-          score,
-          reasoning,
-          judgeModelVersion: "auto-graded",
-          confirmedModel,
-          createdBy: uid,
-        });
-
-        evaluated++;
-        continue;
-      }
-
-      // ── Open-ended: LLM-as-a-Judge ────────────────────────────────────────
-      const referenceAnswer = useReferenceAnswers ? refAnswerMap.get(question.id) : undefined;
-
-      if (useReferenceAnswers && !referenceAnswer) {
-        skipped++;
-        errors.push(`Response ${response.id}: no reference answer for question ${question.id} — run Step 1 first`);
-        continue;
-      }
-
-      const prompt = evalSections
-        ? assembleEvalPrompt(
-            evalSections,
-            question.questionText,
-            question.goldAnswer,
-            response.responseText,
-            (question.metadata as Record<string, unknown>) ?? {},
-            referenceAnswer
-          )
-        : buildJudgePrompt(
-            question.questionText,
-            question.goldAnswer,
-            response.responseText,
-            (question.metadata as Record<string, unknown>) ?? {},
-            referenceAnswer
-          );
-
-      const { text, confirmedModel } = await callLLM(
-        judgeModel.provider as LLMProvider,
-        resolvedModelVersion!,
-        prompt,
-        apiKey!
+    // ── MCQ: deterministic auto-grading — no LLM call needed ──────────────
+    if (question.questionType === "MCQ") {
+      const { score, reasoning, confirmedModel } = scoreMCQDeterministic(
+        response.responseText,
+        question.goldAnswer
       );
-
-      const result = parseJudgeResponse(text);
-      if (!result) {
-        skipped++;
-        errors.push(`Response ${response.id}: failed to parse judge output`);
-        continue;
-      }
-
       await db.insert(judgeEvaluationsTable).values({
         responseId: response.id,
         judgeModelId: resolvedJudgeModelId!,
-        score: result.score,
-        reasoning: result.reasoning,
-        judgeModelVersion: resolvedModelVersion,
-        confirmedModel: confirmedModel ?? resolvedModelVersion,
+        score,
+        reasoning,
+        judgeModelVersion: "auto-graded",
+        confirmedModel,
         createdBy: uid,
-        promptId: evalPromptId ?? "system_evaluation",
       });
+      return "evaluated";
+    }
 
-      evaluated++;
-    } catch (e) {
-      logger.error({ error: String(e), responseId: response.id }, "Judge evaluation failed");
-      skipped++;
-      errors.push(`Response ${response.id}: ${String(e)}`);
+    // ── Open-ended: LLM-as-a-Judge ─────────────────────────────────────────
+    const referenceAnswer = useReferenceAnswers ? refAnswerMap.get(question.id) : undefined;
+    if (useReferenceAnswers && !referenceAnswer) {
+      errors.push(`Response ${response.id}: no reference answer for question ${question.id} — run Step 1 first`);
+      return "skipped";
+    }
+
+    const prompt = evalSections
+      ? assembleEvalPrompt(
+          evalSections,
+          question.questionText,
+          question.goldAnswer,
+          response.responseText,
+          (question.metadata as Record<string, unknown>) ?? {},
+          referenceAnswer
+        )
+      : buildJudgePrompt(
+          question.questionText,
+          question.goldAnswer,
+          response.responseText,
+          (question.metadata as Record<string, unknown>) ?? {},
+          referenceAnswer
+        );
+
+    const { text, confirmedModel } = await callLLM(
+      judgeModel.provider as LLMProvider,
+      resolvedModelVersion!,
+      prompt,
+      apiKey!
+    );
+
+    const result = parseJudgeResponse(text);
+    if (!result) {
+      errors.push(`Response ${response.id}: failed to parse judge output`);
+      return "skipped";
+    }
+
+    await db.insert(judgeEvaluationsTable).values({
+      responseId: response.id,
+      judgeModelId: resolvedJudgeModelId!,
+      score: result.score,
+      reasoning: result.reasoning,
+      judgeModelVersion: resolvedModelVersion,
+      confirmedModel: confirmedModel ?? resolvedModelVersion,
+      createdBy: uid,
+      promptId: evalPromptId ?? "system_evaluation",
+    });
+    return "evaluated";
+  }
+
+  // Process responses in parallel batches of CONCURRENCY
+  for (let i = 0; i < responseRows.length; i += CONCURRENCY) {
+    const chunk = responseRows.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(
+      chunk.map(({ response, question }) => processOne(response, question))
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "evaluated") evaluated++;
+        else skipped++;
+      } else {
+        logger.error({ error: String(r.reason) }, "Judge evaluation failed in batch");
+        skipped++;
+        errors.push(String(r.reason));
+      }
     }
   }
 
