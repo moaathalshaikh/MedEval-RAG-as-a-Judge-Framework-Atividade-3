@@ -135,7 +135,7 @@ MedEval-RAG-as-a-Judge-Framework-Atividade-3/
 │       └── rag_noise_cases.csv           ← Cases where RAG degraded performance
 ├── artifacts/                             ← (inherited from Activity 2)
 │   ├── api-server/
-│   └── llm-judge/
+│   └── llm-judge/ 
 └── lib/
     └── db/src/schema/
         └── rag.ts                         ← rag_documents + rag_chunks tables
