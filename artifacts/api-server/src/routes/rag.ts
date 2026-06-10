@@ -107,17 +107,28 @@ router.post("/rag/documents/:id/embed", async (req: Request, res: Response): Pro
   const errors: string[] = [];
   let embedded = 0;
 
-  for (let i = 0; i < chunks.length; i++) {
-    try {
-      const embedding = await getEmbedding(chunks[i], apiKey);
-      await db.execute(
-        sql`INSERT INTO rag_chunks (document_id, chunk_text, chunk_index, embedding)
-            VALUES (${docId}, ${chunks[i]}, ${i}, ${`[${embedding.join(",")}]`}::vector)`
-      );
-      embedded++;
-    } catch (e) {
-      logger.error({ error: String(e), chunkIndex: i }, "Embedding error");
-      errors.push(`Chunk ${i}: ${String(e)}`);
+  // Parallel embedding — 20 concurrent OpenAI calls (safe rate limit)
+  const EMBED_CONCURRENCY = 20;
+
+  for (let i = 0; i < chunks.length; i += EMBED_CONCURRENCY) {
+    const batch = chunks.slice(i, i + EMBED_CONCURRENCY);
+    const results = await Promise.allSettled(
+      batch.map(async (chunkText, j) => {
+        const idx = i + j;
+        const embedding = await getEmbedding(chunkText, apiKey);
+        await db.execute(
+          sql`INSERT INTO rag_chunks (document_id, chunk_text, chunk_index, embedding)
+              VALUES (${docId}, ${chunkText}, ${idx}, ${`[${embedding.join(",")}]`}::vector)`
+        );
+        return idx;
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") embedded++;
+      else {
+        logger.error({ error: String(r.reason) }, "Embedding error");
+        errors.push(String(r.reason).slice(0, 120));
+      }
     }
   }
 
