@@ -25,11 +25,11 @@ MedEval Activity 3 extends the LLM-as-a-Judge evaluation platform built in Activ
 | Name | Role |
 |------|------|
 | Moaath Almohammad Alshaikh | Full-stack development, RAG architecture, pgvector integration, statistical analysis |
-| Tasneem Alshaher | SLM models, RAG re-inference pipeline, dataset management |
-| Marcelo West | Database schema extension, backup |
-| Clélio Xavier | Judge pipeline adaptation for RAG |
-| Sérgio Santos | Human evaluation, before/after results analysis |
-| Hernandison Bispo | Research insights, document curation |
+| Tasneem Alshaher | SLM models, RAG re-inference pipeline, dataset management | statistical analysis |
+| Marcelo West | Database schema extension, backup | statistical analysis |
+| Clélio Xavier | Judge pipeline adaptation for RAG | statistical analysis |
+| Sérgio Santos | Human evaluation, before/after results analysis | statistical analysis |
+| Hernandison Bispo | Research insights, document curation | statistical analysis |
 
 ---
 
