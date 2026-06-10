@@ -260,85 +260,90 @@ router.post("/rag/re-infer", async (req: Request, res: Response): Promise<void> 
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const q of questions) {
-    try {
-      // Determine eligible docs and topK based on question type
-      const isMcq = q.questionType === "MCQ";
-      const effectiveTopK = isMcq ? 1 : (topK ?? 3);   // MCQ: 1 precise chunk; open-ended: 3
-      const eligibleIds = eligibleDocIds(q.questionType, documentIds);
+  // Process questions in parallel batches — 10 concurrent LLM calls
+  const REINFER_CONCURRENCY = 10;
 
-      // Search relevant chunks for this question
-      const queryEmbedding = await getEmbedding(q.questionText, openaiKey);
-      const vecStr = `[${queryEmbedding.join(",")}]`;
+  async function processQuestion(q: typeof questions[0]): Promise<"generated" | "skipped"> {
+    const isMcq = q.questionType === "MCQ";
+    const effectiveTopK = isMcq ? 1 : (topK ?? 3);
+    const eligibleIds = eligibleDocIds(q.questionType, documentIds);
 
-      let chunkRows: Array<{ chunk_text: string; doc_title: string }>;
-      if (eligibleIds.length > 0) {
-        chunkRows = await db.execute(sql`
-          SELECT c.chunk_text, d.title AS doc_title
-          FROM rag_chunks c
-          JOIN rag_documents d ON d.id = c.document_id
-          WHERE c.document_id = ANY(${eligibleIds}::int[])
-            AND c.embedding IS NOT NULL
-          ORDER BY c.embedding <=> ${vecStr}::vector
-          LIMIT ${effectiveTopK}
-        `) as any;
-        chunkRows = Array.isArray(chunkRows) ? chunkRows : (chunkRows as any).rows ?? [];
-      } else {
-        // No eligible docs for this question type → no RAG context
-        chunkRows = [];
-        logger.warn({ questionId: q.id, questionType: q.questionType }, "No eligible RAG documents for question type");
-      }
+    const queryEmbedding = await getEmbedding(q.questionText, openaiKey!);
+    const vecStr = `[${queryEmbedding.join(",")}]`;
 
-      // Build RAG-augmented prompt (differs by question type)
-      const ragContext = chunkRows
-        .map((c, i) => `[Context ${i + 1} — ${c.doc_title}]\n${c.chunk_text}`)
-        .join("\n\n---\n\n");
+    let chunkRows: Array<{ chunk_text: string; doc_title: string }>;
+    if (eligibleIds.length > 0) {
+      const raw = await db.execute(sql`
+        SELECT c.chunk_text, d.title AS doc_title
+        FROM rag_chunks c
+        JOIN rag_documents d ON d.id = c.document_id
+        WHERE c.document_id = ANY(${eligibleIds}::int[])
+          AND c.embedding IS NOT NULL
+        ORDER BY c.embedding <=> ${vecStr}::vector
+        LIMIT ${effectiveTopK}
+      `) as any;
+      chunkRows = Array.isArray(raw) ? raw : (raw as any).rows ?? [];
+    } else {
+      chunkRows = [];
+    }
 
-      let augmentedPrompt: string;
-      if (ragContext.length === 0) {
-        augmentedPrompt = q.questionText;
-      } else if (isMcq) {
-        augmentedPrompt = `${q.questionText}\n\n[CLINICAL REFERENCE — Use this to inform your answer]\n\n${ragContext}\n\nBased on the above reference and your medical knowledge, select the single best answer.`;
-      } else {
-        augmentedPrompt = `${q.questionText}\n\n[RELEVANT CLINICAL CONTEXT — Retrieved from current guidelines]\n\n${ragContext}\n\nPlease answer using both your medical knowledge and the above clinical context.`;
-      }
+    const ragContext = chunkRows
+      .map((c, i) => `[Context ${i + 1} — ${c.doc_title}]\n${c.chunk_text}`)
+      .join("\n\n---\n\n");
 
-      const { text, inferenceTimeMs } = await callLLM(
-        model.modelType as LLMProvider,
-        model.modelSize,
-        augmentedPrompt,
-        apiKey
-      );
+    let augmentedPrompt: string;
+    if (ragContext.length === 0) {
+      augmentedPrompt = q.questionText;
+    } else if (isMcq) {
+      augmentedPrompt = `${q.questionText}\n\n[CLINICAL REFERENCE — Use this to inform your answer]\n\n${ragContext}\n\nBased on the above reference and your medical knowledge, select the single best answer.`;
+    } else {
+      augmentedPrompt = `${q.questionText}\n\n[RELEVANT CLINICAL CONTEXT — Retrieved from current guidelines]\n\n${ragContext}\n\nPlease answer using both your medical knowledge and the above clinical context.`;
+    }
 
-      await db
-        .insert(modelResponsesTable)
-        .values({
-          questionId: q.id,
-          modelId: model.id,
+    const { text, inferenceTimeMs } = await callLLM(
+      model.modelType as LLMProvider,
+      model.modelSize,
+      augmentedPrompt,
+      apiKey!
+    );
+
+    await db
+      .insert(modelResponsesTable)
+      .values({
+        questionId: q.id,
+        modelId: model.id,
+        responseText: text,
+        inferenceTimeMs,
+        createdBy: uid,
+        ragEnabled: true,
+        ragContext: ragContext || null,
+      })
+      .onConflictDoUpdate({
+        target: [
+          modelResponsesTable.questionId,
+          modelResponsesTable.modelId,
+          modelResponsesTable.ragEnabled,
+        ],
+        set: {
           responseText: text,
           inferenceTimeMs,
-          createdBy: uid,
-          ragEnabled: true,
           ragContext: ragContext || null,
-        })
-        .onConflictDoUpdate({
-          target: [
-            modelResponsesTable.questionId,
-            modelResponsesTable.modelId,
-            modelResponsesTable.ragEnabled,
-          ],
-          set: {
-            responseText: text,
-            inferenceTimeMs,
-            ragContext: ragContext || null,
-          },
-        });
+        },
+      });
 
-      generated++;
-    } catch (e) {
-      logger.error({ error: String(e), questionId: q.id }, "RAG re-inference error");
-      skipped++;
-      errors.push(`Q${q.id}: ${String(e).slice(0, 120)}`);
+    return "generated";
+  }
+
+  for (let i = 0; i < questions.length; i += REINFER_CONCURRENCY) {
+    const batch = questions.slice(i, i + REINFER_CONCURRENCY);
+    const results = await Promise.allSettled(batch.map(q => processQuestion(q)));
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value === "generated") generated++;
+      else if (r.status === "rejected") {
+        logger.error({ error: String(r.reason) }, "RAG re-inference error");
+        skipped++;
+        errors.push(String(r.reason).slice(0, 120));
+      } else skipped++;
     }
   }
 
